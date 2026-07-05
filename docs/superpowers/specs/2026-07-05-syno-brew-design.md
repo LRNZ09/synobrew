@@ -19,6 +19,7 @@ user can read the script top-to-bottom before running it. Every decision below
 favors "small and obvious" over "clever and complete."
 
 ### Goals
+
 - Install a working Homebrew on DSM 7.x with the minimum necessary host changes.
 - Survive reboots automatically (via a DSM Task Scheduler boot task).
 - Be idempotent — re-running is safe and is the documented recovery path after
@@ -27,6 +28,7 @@ favors "small and obvious" over "clever and complete."
   system file it overwrites, and offer a `--dry-run`.
 
 ### Non-goals
+
 - No shell frameworks, themes, editors, or curated package lists.
 - No in-script uninstall (manual revert steps documented in the README).
 - No attempt to make Homebrew "officially supported" on Synology — this is a
@@ -44,6 +46,7 @@ naming does not reliably indicate CPU arch).
 | `armv7l`, `armv6l`, `armv5*`, `i686`, `i386`, anything else | **HARD-BLOCK** with a clear message. |
 
 Other preflight gates:
+
 - **Not root:** abort if `EUID == 0` (Homebrew's installer refuses root anyway).
 - **sudo available:** the invoking user must be in DSM's `administrators` group;
   ordinary password-prompted `sudo` is sufficient. **Passwordless sudo is NOT
@@ -60,7 +63,7 @@ Other preflight gates:
 
 ## 3. Repo layout
 
-```
+```tree
 syno-brew/
 ├── install.sh              # one-shot installer, run over SSH — the thing to review
 ├── restore.sh              # idempotent shims + bind mount; run by install.sh AND the boot task
@@ -91,11 +94,15 @@ Run **once**, over SSH, as a non-root admin user. Responsibilities in order:
    prompt; `--yes` skips.
 4. **Apply shims** by invoking `restore.sh` (which is idempotent and does its own
    backups). This creates the mount + shims for the current session.
-5. **Install persistence artifact:** copy `restore.sh` to
-   `/volume1/syno-brew/restore.sh` (on the data volume → survives DSM updates),
-   `chmod 755`. Then **print** the exact DSM Task Scheduler steps to register it
-   as a boot task (see §6). The script cannot reliably create Task Scheduler
-   entries from the CLI, so this one step is manual and documented.
+5. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/syno-brew/restore.sh`
+   (a conventional `~/.tools/` grouping dir on the homes share → on the data
+   volume, survives DSM updates), `chmod 755`. Resolve it to its absolute
+   `/volumeX/homes/<user>/.tools/syno-brew/restore.sh` path (via `readlink -f`)
+   and bake that into the printed Task Scheduler command and the README, since
+   the root boot task has no `$HOME`. Then **print** the exact DSM Task Scheduler
+   steps to register it as a boot task (see §6). The script cannot reliably
+   create Task Scheduler entries from the CLI, so this one step is manual and
+   documented.
 6. **Pre-authenticate sudo** (`sudo -v`) and start a short background keep-alive
    that refreshes the sudo timestamp every ~60s until the script exits (killed
    via an EXIT trap). This lets the long Homebrew install use `sudo` without
@@ -122,6 +129,7 @@ is guarded so re-running is a no-op when already correct. Backs up any
 pre-existing target to `<path>.syno-brew.bak-<epoch>` before overwriting.
 
 1. **Bind mount `/home`:**
+
    ```sh
    if ! grep -qs ' /home ' /proc/mounts; then
      mkdir -p /home
@@ -130,6 +138,7 @@ pre-existing target to `<path>.syno-brew.bak-<epoch>` before overwriting.
    chown root:root /home
    chmod 775 /home
    ```
+
    Rationale: Homebrew bottles are built for the fixed prefix
    `/home/linuxbrew/.linuxbrew`; DSM has no `/home`. Bind mounts are
    runtime-only and DSM regenerates `/etc/fstab` each boot, so this must be
@@ -155,12 +164,19 @@ pre-existing target to `<path>.syno-brew.bak-<epoch>` before overwriting.
   updates (system partition is re-flashed; `/etc` can regenerate from
   `/etc.defaults`). The boot task re-runs `restore.sh`, which re-applies all of
   them, so the setup self-heals across most updates.
-- **`restore.sh` itself** lives on `/volume1` and survives DSM updates.
+- **`restore.sh` itself** lives at `$HOME/.tools/syno-brew/restore.sh` on the
+  homes share (data volume) and survives DSM updates. It shares fate with the
+  brew prefix, which also lives on the homes share
+  (`/home/linuxbrew/.linuxbrew` → `/volumeX/homes/linuxbrew/...`): if the homes
+  share is an *encrypted* shared folder and unmounted at boot, both the prefix
+  and `restore.sh` are unavailable until it is unlocked — an acceptable,
+  documented edge case since brew is unusable then regardless.
 
 **Boot task (manual, one time, README-documented):** Control Panel → Task
 Scheduler → Create → Triggered Task → User-defined script; **User = root**,
-**Event = Boot-up**; command: `/volume1/syno-brew/restore.sh`. Must be root
-(`mount`/`chown` need it; `sudo` does not work inside DSM tasks).
+**Event = Boot-up**; command: the absolute path baked in at install time, e.g.
+`/volume1/homes/<user>/.tools/syno-brew/restore.sh`. Must be root (`mount`/`chown`
+need it; `sudo` does not work inside DSM tasks).
 
 **Why Task Scheduler over systemd:** verified research found Task Scheduler
 entries (stored in DSM's config DB) survive DSM major updates better than
@@ -206,8 +222,8 @@ table, git via SynoCommunity) · What it changes (explicit list) · Install
 · After reboots vs after DSM updates · Manual uninstall (conservative: run
 Homebrew's `uninstall.sh`, remove shims/restore `.bak`, `umount` + `rmdir`
 `/home` **only if empty and we created it**, strip the shellenv line, delete the
-boot task) · Compatibility & caveats (unofficial, aarch64 source builds) ·
-Safety notes.
+boot task, remove `$HOME/.tools/syno-brew/`) · Compatibility & caveats
+(unofficial, aarch64 source builds) · Safety notes.
 
 ## 10. Testing
 
