@@ -37,3 +37,52 @@ sb_parse_glibc() {
   # $1: text (libc banner or `ldd --version`). Echoes first X.Y, or empty.
   printf '%s\n' "${1:-}" | grep -Eo '[0-9]+\.[0-9]+' | head -n1
 }
+
+sb_shell_from_path() {
+  # $1: shell path (e.g. from $SHELL). Echoes bash|zsh|fish|sh|other.
+  case "$(basename "${1:-}")" in
+    bash) echo bash ;;
+    zsh) echo zsh ;;
+    fish) echo fish ;;
+    sh|dash|ash) echo sh ;;
+    *) echo other ;;
+  esac
+}
+
+sb_rc_file() {
+  # $1 shell, $2 home. Echoes the rc file to edit.
+  case "${1:-}" in
+    fish) echo "${2}/.config/fish/config.fish" ;;
+    zsh) echo "${2}/.zshrc" ;;
+    *) echo "${2}/.profile" ;;  # bash, sh, other -> login rcfile on DSM
+  esac
+}
+
+sb_shellenv_line() {
+  # $1 shell, $2 brew binary path. Echoes the exact line to append.
+  case "${1:-}" in
+    fish) echo "${2} shellenv fish | source" ;;
+    *) echo "eval \"\$(${2} shellenv)\"" ;;
+  esac
+}
+
+sb_bak_name() {
+  # $1 path, $2 epoch. Echoes the backup filename.
+  echo "${1}.synobrew.bak-${2}"
+}
+
+sb_classify_state() {
+  # $1 brew_at_std(0/1) $2 mount_present(0/1) $3 same_backing(0/1) $4 brew_elsewhere(0/1)
+  if [ "${1:-0}" = 1 ]; then
+    if [ "${2:-0}" = 1 ] && [ "${3:-0}" = 1 ]; then echo managed; else echo foreign-backing; fi
+    return
+  fi
+  if [ "${4:-0}" = 1 ]; then echo foreign-prefix; return; fi
+  echo fresh
+}
+
+sb_dev_inode() {
+  # $1 path. Echoes "<dev>:<inode>" (GNU or BSD stat), empty if missing.
+  [ -e "${1:-}" ] || return 0
+  stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1" 2>/dev/null || true
+}
