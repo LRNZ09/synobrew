@@ -99,3 +99,133 @@ SH
   [ "$status" -eq 0 ]
   [[ "$output" == *"state: foreign-backing"* ]]
 }
+
+# Helper: a full hermetic sandbox — sudo is a no-op passthrough, mount/rsync/curl
+# are stubs, and Homebrew's installer is a local stub script (no network, no
+# real /home/linuxbrew, no real brew).
+_full_sandbox_env() {
+  export SB_PREFIX_MOUNT="$SANDBOX/home_linuxbrew"
+  export SB_PREFIX_STORE="$SANDBOX/store"
+  export SB_TOOLS_DIR="$SANDBOX/tools"
+  export SB_LDD="$SANDBOX/ldd"
+  export SB_OSRELEASE="$SANDBOX/os-release"
+  export SB_LIBC="/no/libc"
+  export SB_BREW="$SANDBOX/no-such-brew"      # nothing "elsewhere" unless a test sets it
+  export SHELL="/bin/bash"
+
+  # no-op sudo passthrough: drop -v/-k, strip -n, exec the rest (incl. `env`)
+  cat > "$SANDBOX/sudo" <<'SH'
+#!/bin/sh
+case "$1" in -v|-k) exit 0 ;; -n) shift ;; esac
+exec "$@"
+SH
+  chmod +x "$SANDBOX/sudo"; export SB_SUDO="$SANDBOX/sudo"
+
+  # mount stub: records args AND emulates the bind by mirroring SRC into DST,
+  # so code that reads the "mounted" prefix (maybe_install_brew) sees it.
+  # restore.sh calls: mount -o bind SRC DST
+  cat > "$SANDBOX/mount-stub" <<'SH'
+#!/bin/sh
+echo "MOUNT $*" >> "$MOUNT_LOG"
+if [ "$1" = "-o" ] && [ "$2" = "bind" ] && [ -d "$3" ]; then
+  mkdir -p "$4"
+  cp -R "$3/." "$4/" 2>/dev/null || true
+fi
+SH
+  chmod +x "$SANDBOX/mount-stub"
+  export MOUNT_LOG="$SANDBOX/mount.log"; export SB_MOUNT="$SANDBOX/mount-stub"
+
+  # rsync stub: portable copy (macOS openrsync rejects -aHAX). Last two
+  # non-flag args are SRC/ and DST/ (rsync's own convention: source then dest).
+  cat > "$SANDBOX/rsync-stub" <<'SH'
+#!/bin/sh
+src=""; dst=""
+for a in "$@"; do
+  case "$a" in
+    -*) continue ;;
+  esac
+  src="$dst"
+  dst="$a"
+done
+mkdir -p "$dst"
+cp -R "${src}." "$dst" 2>/dev/null || true
+SH
+  chmod +x "$SANDBOX/rsync-stub"; export SB_RSYNC="$SANDBOX/rsync-stub"
+
+  # installer stub: fetched via SB_CURL, run by /bin/bash -c; creates brew AT THE MOUNT.
+  cat > "$SANDBOX/brew-install.sh" <<SH
+#!/bin/sh
+mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin"
+cat > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew" <<'BREW'
+#!/bin/sh
+echo "Homebrew (synobrew test stub) 4.x"
+BREW
+chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+SH
+  chmod +x "$SANDBOX/brew-install.sh"
+  export SB_BREW_INSTALL_URL="$SANDBOX/brew-install.sh"
+
+  # SB_CURL stub: ignore flags, cat the local "URL" (the installer path) to stdout.
+  cat > "$SANDBOX/curl-stub" <<'SH'
+#!/bin/sh
+for last in "$@"; do :; done          # last arg = the URL == local installer path
+cat "$last"
+SH
+  chmod +x "$SANDBOX/curl-stub"; export SB_CURL="$SANDBOX/curl-stub"
+}
+
+@test "fresh install (dry-run) reports all planned actions" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --dry-run --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: fresh"* ]]
+  [[ "$output" == *"[dry-run]"* ]]
+  [[ "$output" == *"Task Scheduler"* ]]
+  [[ "$output" == *"official Homebrew installer"* ]]
+}
+
+@test "fresh install (real, sandboxed) installs via the stub + writes persistence + shellenv" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: fresh"* ]]
+  [ -x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew" ]
+  [ -x "$SB_TOOLS_DIR/restore.sh" ]
+  grep -q "SB_PREFIX_STORE=" "$SB_TOOLS_DIR/synobrew.conf"
+  grep -q 'brew shellenv' "$SB_HOME/.profile"
+  grep -q 'HOMEBREW_TEMP' "$SB_HOME/.profile"
+}
+
+@test "shellenv is idempotent across two runs" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [ "$(grep -c 'brew shellenv' "$SB_HOME/.profile")" -eq 1 ]
+}
+
+@test "migrate copies an existing prefix into the new store" {
+  _full_sandbox_env
+  # Existing (unmounted, real-dir) prefix at the mount path -> foreign-backing.
+  mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin"
+  printf '#!/bin/sh\necho brew\n' > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  echo "payload" > "$SB_PREFIX_MOUNT/.linuxbrew/marker.txt"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: foreign-backing"* ]]
+  [ -x "$SB_PREFIX_STORE/.linuxbrew/bin/brew" ]
+  grep -q payload "$SB_PREFIX_STORE/.linuxbrew/marker.txt"
+  compgen -G "$SB_PREFIX_MOUNT/.linuxbrew.synobrew-old-*" > /dev/null
+}
+
+@test "migrate refuses to clobber a non-empty target store" {
+  _full_sandbox_env
+  mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin" "$SB_PREFIX_STORE/.linuxbrew"
+  printf '#!/bin/sh\necho brew\n' > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"already exists"* ]]
+}
