@@ -90,8 +90,8 @@ Run **once**, over SSH, as a non-root admin user. Responsibilities in order:
    nothing), `--yes` (skip confirmation; implies non-interactive), `-h/--help`.
 2. **Preflight gates** (§2). Abort early with actionable messages.
 3. **Confirm:** print exactly what will change (`/usr/bin/ldd`, `/etc/os-release`,
-   `/home` bind mount, install of `restore.sh`, edit of the shell rc file) and
-   prompt; `--yes` skips.
+   `/home/linuxbrew` bind mount, install of `restore.sh`, edit of the shell rc
+   file) and prompt; `--yes` skips.
 4. **Apply shims** by invoking `restore.sh` (which is idempotent and does its own
    backups). This creates the mount + shims for the current session.
 5. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/synobrew/restore.sh`
@@ -128,21 +128,26 @@ Runs from `install.sh` and from the boot task (as root at boot). Each operation
 is guarded so re-running is a no-op when already correct. Backs up any
 pre-existing target to `<path>.synobrew.bak-<epoch>` before overwriting.
 
-1. **Bind mount `/home`:**
+1. **Bind-mount the prefix store onto `/home/linuxbrew`:**
 
    ```sh
-   if ! grep -qs ' /home ' /proc/mounts; then
-     mkdir -p /home
-     mount -o bind "$(readlink -f /var/services/homes)" /home
+   PREFIX_STORE="/volume1/homes/<user>/.tools/synobrew/prefix"  # absolute, baked in at install time
+   mkdir -p /home/linuxbrew "$PREFIX_STORE"
+   if ! mountpoint -q /home/linuxbrew; then
+     mount -o bind "$PREFIX_STORE" /home/linuxbrew
    fi
-   chown root:root /home
-   chmod 775 /home
+   chown "<user>:<group>" /home/linuxbrew   # brew, run as <user>, must own its prefix
    ```
 
-   Rationale: Homebrew bottles are built for the fixed prefix
-   `/home/linuxbrew/.linuxbrew`; DSM has no `/home`. Bind mounts are
-   runtime-only and DSM regenerates `/etc/fstab` each boot, so this must be
-   re-run at boot.
+   Rationale: Homebrew's Linux bottles are built for the fixed prefix
+   `/home/linuxbrew/.linuxbrew`, so that path must exist and be writable — but
+   its physical backing is our choice. We bind-mount **only `/home/linuxbrew`**
+   from a dedicated store under the install user's home, so we never mount the
+   whole homes share onto `/home` (which would expose every user's home) and
+   `linuxbrew` never sits beside real user folders. Bind mounts are runtime-only
+   and DSM regenerates `/etc/fstab` each boot, so this is re-applied at boot.
+   `PREFIX_STORE` + owner are absolute values baked into the installed
+   `restore.sh` (the root boot task has no `$HOME`).
 2. **`/usr/bin/ldd` shim (REQUIRED):** a tiny script that parses the glibc
    version from `/usr/lib/libc.so.6` and prints `ldd <version>` (fallback a sane
    value ≥ 2.13). Rationale: Homebrew's `install.sh` runs `ldd --version` to
@@ -152,8 +157,6 @@ pre-existing target to `<path>.synobrew.bak-<epoch>` before overwriting.
    `PRETTY_NAME` from `/etc.defaults/VERSION`. Rationale: only silences a
    per-command `os-release: No such file` warning and fixes the `brew config` OS
    field. **Not** a gate for install; created for cleanliness.
-4. **Pre-create `/home/linuxbrew`** owned appropriately so the installer can
-   populate the prefix.
 
 `restore.sh` also accepts `--dry-run`.
 
@@ -164,13 +167,14 @@ pre-existing target to `<path>.synobrew.bak-<epoch>` before overwriting.
   updates (system partition is re-flashed; `/etc` can regenerate from
   `/etc.defaults`). The boot task re-runs `restore.sh`, which re-applies all of
   them, so the setup self-heals across most updates.
-- **`restore.sh` itself** lives at `$HOME/.tools/synobrew/restore.sh` on the
-  homes share (data volume) and survives DSM updates. It shares fate with the
-  brew prefix, which also lives on the homes share
-  (`/home/linuxbrew/.linuxbrew` → `/volumeX/homes/linuxbrew/...`): if the homes
-  share is an *encrypted* shared folder and unmounted at boot, both the prefix
-  and `restore.sh` are unavailable until it is unlocked — an acceptable,
-  documented edge case since brew is unusable then regardless.
+- **`restore.sh` and the prefix store** both live under
+  `$HOME/.tools/synobrew/` on the homes share (data volume) and survive DSM
+  updates: `restore.sh` at `.../restore.sh` and the brew prefix bind-mounted
+  from `.../prefix` (so `/home/linuxbrew/.linuxbrew` →
+  `/volumeX/homes/<user>/.tools/synobrew/prefix/.linuxbrew`). If that homes
+  share is an *encrypted* shared folder and unmounted at boot, both are
+  unavailable until it is unlocked — an acceptable, documented edge case since
+  brew is unusable then regardless.
 
 **Boot task (manual, one time, README-documented):** Control Panel → Task
 Scheduler → Create → Triggered Task → User-defined script; **User = root**,
