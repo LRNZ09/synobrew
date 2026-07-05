@@ -24,6 +24,8 @@ favors "small and obvious" over "clever and complete."
 - Survive reboots automatically (via a DSM Task Scheduler boot task).
 - Be idempotent — re-running is safe and is the documented recovery path after
   DSM updates.
+- Install-or-repair: detect an existing (or differently-located) Homebrew and
+  repair/migrate it in place, not only install from scratch.
 - Be safe: fail fast on unsupported hardware, never run as root, back up any
   system file it overwrites, and offer a `--dry-run`.
 
@@ -84,17 +86,25 @@ functions so they can be unit-tested without a Synology.
 
 ## 4. Component: `install.sh`
 
-Run **once**, over SSH, as a non-root admin user. Responsibilities in order:
+Run over SSH as a non-root admin user. `install.sh` is **install-or-repair**:
+it detects the current state and does the minimal correct action, so re-running
+is both idempotent and the documented recovery path. Order:
 
 1. **Parse args:** `--dry-run` (print every privileged/mutating action, execute
    nothing), `--yes` (skip confirmation; implies non-interactive), `-h/--help`.
 2. **Preflight gates** (§2). Abort early with actionable messages.
-3. **Confirm:** print exactly what will change (`/usr/bin/ldd`, `/etc/os-release`,
-   `/home/linuxbrew` bind mount, install of `restore.sh`, edit of the shell rc
-   file) and prompt; `--yes` skips.
-4. **Apply shims** by invoking `restore.sh` (which is idempotent and does its own
-   backups). This creates the mount + shims for the current session.
-5. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/synobrew/restore.sh`
+3. **Detect state** (§4a) and choose the action: *fresh install*, *repair*
+   (re-apply whatever is missing — shims, mount, boot task, shellenv), or
+   *migrate* (relocate an existing prefix's backing store to
+   `$HOME/.tools/synobrew/prefix`). Report the detected state.
+4. **Confirm:** print exactly what the chosen action will change (`/usr/bin/ldd`,
+   `/etc/os-release`, `/home/linuxbrew` bind mount, any prefix move
+   `<old> → $HOME/.tools/synobrew/prefix`, install of `restore.sh`, edit of the
+   shell rc file) and prompt; `--yes` skips.
+5. **Apply shims + mount** by invoking `restore.sh` (idempotent, self-backing-up):
+   ensure `/usr/bin/ldd`, `/etc/os-release`, and the `/home/linuxbrew` bind mount
+   from the prefix store. On *migrate*, relocate the store first (§4a).
+6. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/synobrew/restore.sh`
    (a conventional `~/.tools/` grouping dir on the homes share → on the data
    volume, survives DSM updates), `chmod 755`. Resolve it to its absolute
    `/volumeX/homes/<user>/.tools/synobrew/restore.sh` path (via `readlink -f`)
@@ -103,24 +113,60 @@ Run **once**, over SSH, as a non-root admin user. Responsibilities in order:
    steps to register it as a boot task (see §6). The script cannot reliably
    create Task Scheduler entries from the CLI, so this one step is manual and
    documented.
-6. **Pre-authenticate sudo** (`sudo -v`) and start a short background keep-alive
+7. **Pre-authenticate sudo** (`sudo -v`) and start a short background keep-alive
    that refreshes the sudo timestamp every ~60s until the script exits (killed
    via an EXIT trap). This lets the long Homebrew install use `sudo` without
    re-prompting and **without** any `NOPASSWD` sudoers file.
-7. **Run the official installer** as the current user:
+8. **Install Homebrew only if absent:** when no working `brew` exists at
+   `/home/linuxbrew/.linuxbrew`, run the official installer as the current user:
    `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`.
    Interactive by default; with `--yes`, set `NONINTERACTIVE=1` (README notes
-   this path relies on the warm sudo timestamp / passwordless sudo).
-8. **Session env + `HOMEBREW_TEMP`:** `eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"`
+   this path relies on the warm sudo timestamp / passwordless sudo). On
+   repair/migrate where brew already runs, skip this step.
+9. **Session env + `HOMEBREW_TEMP`:** `eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"`
    for the current shell, and `export HOMEBREW_TEMP="$HOME/tmp"` (mkdir it) so
    Homebrew's large temp writes stay off DSM's ~2.4 GB system partition.
-9. **Persist shell env** (idempotent, per detected login shell — §5).
-10. **Verify:** `brew --version`, `brew config`, `brew doctor` (doctor is
-    non-fatal), then print a summary + next steps (including the Task Scheduler
-    reminder if not yet done).
+10. **Persist shell env** (idempotent, per detected login shell — §7); on repair,
+    add the line only if missing and report whether it was already present.
+11. **Verify:** `brew --version`, `brew config`, `brew doctor` (doctor is
+    non-fatal), then print a summary of the detected state, what changed, and
+    next steps (including the Task Scheduler reminder if not yet done).
 
 `set -euo pipefail` is on. Every mutating action is a small named function that
 honors `--dry-run`.
+
+### 4a. State detection & migration
+
+Target prefix store `T = $HOME/.tools/synobrew/prefix` (resolved absolute).
+`install.sh` classifies the environment and acts:
+
+- **Fresh** — no `brew` and no `/home/linuxbrew`: normal install (steps 5–11).
+- **synobrew-managed** — `/home/linuxbrew` is bind-mounted from `T` and
+  `/home/linuxbrew/.linuxbrew/bin/brew` runs: no move; just re-ensure shims,
+  mount, boot task, and shellenv (pure repair).
+- **Foreign backing (migratable)** — a valid prefix exists at
+  `/home/linuxbrew/.linuxbrew`, but `/home/linuxbrew` is backed by something
+  other than `T` (e.g. the whole homes share bind-mounted onto `/home`, or a
+  plain directory). **Migrate:**
+  1. Verify no `brew` process is running; recommend a snapshot first (README).
+  2. Require `T` to be empty — otherwise back it up or abort; never clobber an
+     existing store.
+  3. `umount /home/linuxbrew` (or `/home` if it is the whole-homes mount; lazy
+     `umount -l` fallback). Homes data is untouched — still at `/volume1/homes`.
+  4. Move the backing dir into `T`: same-filesystem → `mv` (instant rename);
+     cross-filesystem → `rsync -aHAX --numeric-ids`, verify, then remove the
+     source. Ownership/permissions preserved (brew is strict about these).
+  5. Bind-mount `T` → `/home/linuxbrew`; verify `brew` still runs.
+  Safe **only because the logical prefix path `/home/linuxbrew/.linuxbrew` is
+  unchanged** — brew's baked-in paths still resolve; we relocate storage, not the
+  prefix.
+- **Foreign prefix (NOT auto-migrated)** — a `brew` exists at a *different*
+  prefix (not `/home/linuxbrew/.linuxbrew`). Relocating it is unsafe (Linux
+  bottles are compiled for a fixed prefix), so **warn**, leave it untouched, and
+  offer to proceed with a fresh standard-prefix install alongside (the user
+  removes the old one via its own `brew uninstall` if they want).
+
+Every detection/migration action honors `--dry-run` and the confirmation prompt.
 
 ## 5. Component: `restore.sh` (idempotent shims + mount)
 
@@ -211,6 +257,11 @@ Also print the line so the user can add it elsewhere if desired.
   `NOPASSWD` sudoers fragment** (a kill mid-run could orphan an
   `ALL=NOPASSWD:ALL` rule).
 - Idempotent everywhere (`/proc/mounts`, `grep -qxF`, "already installed" checks).
+- **Prefix migration is a data move — handle with care:** never run while a
+  `brew` process is active; require the target store empty (back up, never
+  clobber); same-filesystem → `mv`, else `rsync -aHAX --numeric-ids` with
+  post-copy verification before deleting the source; recommend a DSM snapshot
+  first. Never relocate a *foreign-prefix* brew (bottles are path-specific).
 - `--dry-run` prints every mutating action; `--yes` for non-interactive.
 - Back up any pre-existing system file before overwrite (`.synobrew.bak-<epoch>`).
 - Tee a logfile for diagnosability.
@@ -223,7 +274,9 @@ Also print the line so the user can add it elsewhere if desired.
 Prerequisites (enable User Home service, SSH as admin user, arch/DSM support
 table, git via SynoCommunity) · What it changes (explicit list) · Install
 (clone-read-run + one-liner) · **Register the boot task** (Task Scheduler steps)
-· After reboots vs after DSM updates · Manual uninstall (conservative: run
+· After reboots vs after DSM updates · **Repair / migration** (re-running
+`install.sh` detects a broken or relocated install and repairs/migrates it in
+place; snapshot before migrating) · Manual uninstall (conservative: run
 Homebrew's `uninstall.sh`, remove shims/restore `.bak`, `umount` + `rmdir`
 `/home` **only if empty and we created it**, strip the shellenv line, delete the
 boot task, remove `$HOME/.tools/synobrew/`) · Compatibility & caveats
