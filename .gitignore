@@ -1,0 +1,4 @@
+*.synobrew.bak-*
+*.log
+tests/.sandbox/
+.superpowers/
