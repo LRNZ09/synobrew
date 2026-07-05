@@ -126,10 +126,28 @@ EOF
   fi
 }
 
+detect_state() {
+  local brew_std=0 mount=0 same=0 elsewhere=0
+  [ -x "${SB_PREFIX_MOUNT}/.linuxbrew/bin/brew" ] && brew_std=1
+  if mountpoint -q "$SB_PREFIX_MOUNT" 2>/dev/null; then mount=1; fi
+  if [ "$mount" = 1 ] && \
+     [ -n "$(sb_dev_inode "$SB_PREFIX_MOUNT")" ] && \
+     [ "$(sb_dev_inode "$SB_PREFIX_MOUNT")" = "$(sb_dev_inode "$SB_PREFIX_STORE")" ]; then
+    same=1
+  fi
+  # Foreign-prefix probe uses the injectable SB_BREW (not a bare `command -v
+  # brew`) so tests can neutralize it (SB_BREW=$SANDBOX/no-such-brew); hosts
+  # that already have Homebrew on PATH would otherwise flip fresh -> foreign-prefix.
+  if [ "$brew_std" = 0 ] && command -v "$SB_BREW" >/dev/null 2>&1; then elsewhere=1; fi
+  sb_classify_state "$brew_std" "$mount" "$same" "$elsewhere"
+}
+
 main() {
   parse_args "$@"
   preflight
   log "preflight passed."
+  local state; state="$(detect_state)"
+  log "state: $state"
 }
 
 main "$@"

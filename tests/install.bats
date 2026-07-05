@@ -79,3 +79,23 @@ teardown() { rm -rf "$SANDBOX"; }
   [[ "$output" != *"glibc detected"* ]]
   [[ "$output" == *"preflight passed"* ]]
 }
+
+@test "detect_state: fresh when nothing present" {
+  run bash "$SB_ROOT/install.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: fresh"* ]]
+}
+
+@test "detect_state: foreign-backing when a real (unmounted) prefix exists" {
+  export SB_PREFIX_MOUNT="$SANDBOX/home_linuxbrew"
+  export SB_PREFIX_STORE="$SANDBOX/store"
+  mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin"
+  cat > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew" <<'SH'
+#!/bin/sh
+echo "Homebrew 4.x"
+SH
+  chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  run bash "$SB_ROOT/install.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: foreign-backing"* ]]
+}
