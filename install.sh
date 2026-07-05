@@ -144,6 +144,10 @@ detect_state() {
 
 SB_OWNER="${SB_OWNER:-$(id -un):$(id -gn)}"
 SB_EPOCH="${SB_EPOCH:-$(date +%s)}"
+# Sudo keep-alive refresh cadence (seconds). Injectable so tests can shrink it:
+# the keep-alive's `sleep` is orphaned when we kill the subshell at exit, and a
+# pipe-capturing harness (bats) waits on it — a low value keeps the suite fast.
+SB_KEEPALIVE_INTERVAL="${SB_KEEPALIVE_INTERVAL:-50}"
 
 backup_if_present() {
   # $1 path: if it exists and is not already our shim/file, copy to a .bak.
@@ -238,7 +242,12 @@ maybe_install_brew() {
 sudo_keepalive() {
   $DRY_RUN && return 0
   "$SB_SUDO" -v || die "sudo authentication required (be an administrators-group user)."
-  ( while true; do sleep 50; "$SB_SUDO" -n true 2>/dev/null || exit; done ) &
+  # Fully detach the keep-alive's descriptors: stdin/stdout/stderr to /dev/null
+  # and close any inherited fd 3. The EXIT-trap kill reaps the subshell but not
+  # its in-flight `sleep`, so an undetached sleep would keep a caller's pipe
+  # open until it wakes — a pipe-capturing harness (e.g. bats, which uses fd 3)
+  # then blocks ~50s at exit. Detaching lets the caller see EOF immediately.
+  ( while true; do sleep "$SB_KEEPALIVE_INTERVAL"; "$SB_SUDO" -n true 2>/dev/null || exit; done ) </dev/null >/dev/null 2>&1 3>&- &
   SB_KEEPALIVE_PID=$!
   trap 'kill "$SB_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 }

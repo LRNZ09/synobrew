@@ -15,6 +15,7 @@ setup() {
   export SB_PREFIX_MOUNT="$SANDBOX/home_linuxbrew"
   export SB_PREFIX_STORE="$SANDBOX/store"
   export SB_BREW="$SANDBOX/no-such-brew"
+  export SB_KEEPALIVE_INTERVAL=1   # keep the sudo keep-alive's orphaned sleep short so bats doesn't block on it
 }
 
 teardown() { rm -rf "$SANDBOX"; }
