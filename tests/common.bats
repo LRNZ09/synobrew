@@ -147,8 +147,8 @@ setup() { load_common; }
 
 @test "sb_dev_inode: returns dev:inode for existing path" {
   run sb_dev_inode "$SB_ROOT/lib/common.sh"
-  [ -n "$output" ]
-  [[ "$output" == *:* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9]+:[0-9]+$ ]]
 }
 
 @test "sb_dev_inode: empty for missing path" {
