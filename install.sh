@@ -214,7 +214,14 @@ EOF
 }
 
 print_boot_task_instructions() {
-  local restore_abs; restore_abs="$(cd "$(dirname "$1")" 2>/dev/null && pwd)/$(basename "$1")"
+  # Canonicalize the dir when it exists (resolves the DSM homes symlink to its
+  # /volumeX/... path for the boot task); fall back to the literal dir when it
+  # doesn't exist yet — e.g. under --dry-run, where `run mkdir` was a no-op and
+  # an unguarded `cd`+`pwd` would collapse the path to a broken "/restore.sh".
+  local dir base canon restore_abs
+  dir="$(dirname "$1")"; base="$(basename "$1")"
+  canon="$(cd "$dir" 2>/dev/null && pwd)" || true
+  restore_abs="${canon:-$dir}/$base"
   cat >&2 <<EOF
 synobrew: ---------------------------------------------------------------
 synobrew: ONE MANUAL STEP — make the mount survive reboots:

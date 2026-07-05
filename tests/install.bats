@@ -183,6 +183,11 @@ SH
   [[ "$output" == *"[dry-run]"* ]]
   [[ "$output" == *"Task Scheduler"* ]]
   [[ "$output" == *"official Homebrew installer"* ]]
+  # The boot-task "Run command" must be the real absolute path, not a broken
+  # "/restore.sh" (the target dir is absent under --dry-run, so the path
+  # computation must fall back to the literal dir rather than collapse to empty).
+  [[ "$output" == *"$SB_TOOLS_DIR/restore.sh"* ]]
+  [[ "$output" != *"Run command:  /restore.sh"* ]]
 }
 
 @test "fresh install (real, sandboxed) installs via the stub + writes persistence + shellenv" {
