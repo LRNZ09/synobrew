@@ -1,4 +1,4 @@
-# syno-brew — Design Spec
+# synobrew — Design Spec
 
 **Date:** 2026-07-05
 **Status:** Approved (pending user review of this spec)
@@ -64,7 +64,7 @@ Other preflight gates:
 ## 3. Repo layout
 
 ```tree
-syno-brew/
+synobrew/
 ├── install.sh              # one-shot installer, run over SSH — the thing to review
 ├── restore.sh              # idempotent shims + bind mount; run by install.sh AND the boot task
 ├── lib/
@@ -94,10 +94,10 @@ Run **once**, over SSH, as a non-root admin user. Responsibilities in order:
    prompt; `--yes` skips.
 4. **Apply shims** by invoking `restore.sh` (which is idempotent and does its own
    backups). This creates the mount + shims for the current session.
-5. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/syno-brew/restore.sh`
+5. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/synobrew/restore.sh`
    (a conventional `~/.tools/` grouping dir on the homes share → on the data
    volume, survives DSM updates), `chmod 755`. Resolve it to its absolute
-   `/volumeX/homes/<user>/.tools/syno-brew/restore.sh` path (via `readlink -f`)
+   `/volumeX/homes/<user>/.tools/synobrew/restore.sh` path (via `readlink -f`)
    and bake that into the printed Task Scheduler command and the README, since
    the root boot task has no `$HOME`. Then **print** the exact DSM Task Scheduler
    steps to register it as a boot task (see §6). The script cannot reliably
@@ -126,7 +126,7 @@ honors `--dry-run`.
 
 Runs from `install.sh` and from the boot task (as root at boot). Each operation
 is guarded so re-running is a no-op when already correct. Backs up any
-pre-existing target to `<path>.syno-brew.bak-<epoch>` before overwriting.
+pre-existing target to `<path>.synobrew.bak-<epoch>` before overwriting.
 
 1. **Bind mount `/home`:**
 
@@ -164,7 +164,7 @@ pre-existing target to `<path>.syno-brew.bak-<epoch>` before overwriting.
   updates (system partition is re-flashed; `/etc` can regenerate from
   `/etc.defaults`). The boot task re-runs `restore.sh`, which re-applies all of
   them, so the setup self-heals across most updates.
-- **`restore.sh` itself** lives at `$HOME/.tools/syno-brew/restore.sh` on the
+- **`restore.sh` itself** lives at `$HOME/.tools/synobrew/restore.sh` on the
   homes share (data volume) and survives DSM updates. It shares fate with the
   brew prefix, which also lives on the homes share
   (`/home/linuxbrew/.linuxbrew` → `/volumeX/homes/linuxbrew/...`): if the homes
@@ -175,7 +175,7 @@ pre-existing target to `<path>.syno-brew.bak-<epoch>` before overwriting.
 **Boot task (manual, one time, README-documented):** Control Panel → Task
 Scheduler → Create → Triggered Task → User-defined script; **User = root**,
 **Event = Boot-up**; command: the absolute path baked in at install time, e.g.
-`/volume1/homes/<user>/.tools/syno-brew/restore.sh`. Must be root (`mount`/`chown`
+`/volume1/homes/<user>/.tools/synobrew/restore.sh`. Must be root (`mount`/`chown`
 need it; `sudo` does not work inside DSM tasks).
 
 **Why Task Scheduler over systemd:** verified research found Task Scheduler
@@ -208,7 +208,7 @@ Also print the line so the user can add it elsewhere if desired.
   `ALL=NOPASSWD:ALL` rule).
 - Idempotent everywhere (`/proc/mounts`, `grep -qxF`, "already installed" checks).
 - `--dry-run` prints every mutating action; `--yes` for non-interactive.
-- Back up any pre-existing system file before overwrite (`.syno-brew.bak-<epoch>`).
+- Back up any pre-existing system file before overwrite (`.synobrew.bak-<epoch>`).
 - Tee a logfile for diagnosability.
 - README supply-chain hygiene: pin/review a specific commit before running, keep
   the NAS off the public internet, snapshot/back up first, prefer
@@ -222,7 +222,7 @@ table, git via SynoCommunity) · What it changes (explicit list) · Install
 · After reboots vs after DSM updates · Manual uninstall (conservative: run
 Homebrew's `uninstall.sh`, remove shims/restore `.bak`, `umount` + `rmdir`
 `/home` **only if empty and we created it**, strip the shellenv line, delete the
-boot task, remove `$HOME/.tools/syno-brew/`) · Compatibility & caveats
+boot task, remove `$HOME/.tools/synobrew/`) · Compatibility & caveats
 (unofficial, aarch64 source builds) · Safety notes.
 
 ## 10. Testing
