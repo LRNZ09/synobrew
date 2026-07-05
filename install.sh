@@ -115,7 +115,11 @@ EOF
   fi
 
   if [ -x "$SB_LIBC" ]; then
-    local g; g="$(sb_parse_glibc "$("$SB_LIBC" 2>/dev/null || true)")"
+    # Trailing `|| true`: sb_parse_glibc returns non-zero when libc emits no
+    # parseable version (grep no-match under `pipefail`). The glibc check is
+    # informational only (never a hard block), so it must not abort the
+    # installer under `set -e`.
+    local g; g="$(sb_parse_glibc "$("$SB_LIBC" 2>/dev/null || true)")" || true
     if [ -n "$g" ]; then
       log "glibc detected: $g (floor 2.13; informational)."
     fi

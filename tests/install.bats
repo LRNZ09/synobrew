@@ -61,3 +61,21 @@ teardown() { rm -rf "$SANDBOX"; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"build from source"* ]]
 }
+
+@test "preflight logs glibc when libc reports a version (informational, non-fatal)" {
+  printf '#!/bin/sh\necho "GNU C Library (GNU libc) stable release version 2.36."\n' > "$SANDBOX/libc"
+  chmod +x "$SANDBOX/libc"
+  SB_LIBC="$SANDBOX/libc" run bash "$SB_ROOT/install.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"glibc detected: 2.36"* ]]
+  [[ "$output" == *"preflight passed"* ]]
+}
+
+@test "preflight does not abort when libc reports no version (set -e safe)" {
+  printf '#!/bin/sh\necho "no version token here"\n' > "$SANDBOX/libc"
+  chmod +x "$SANDBOX/libc"
+  SB_LIBC="$SANDBOX/libc" run bash "$SB_ROOT/install.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"glibc detected"* ]]
+  [[ "$output" == *"preflight passed"* ]]
+}
