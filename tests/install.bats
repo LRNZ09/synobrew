@@ -286,3 +286,15 @@ SH
   [[ "$output" == *"whole homes share"* ]]
   [ ! -e "$SB_PREFIX_STORE/.linuxbrew" ]   # refused before any copy
 }
+
+@test "foreign-prefix: warns and never migrates when brew exists at a non-standard prefix" {
+  _full_sandbox_env
+  # A real brew resolves via SB_BREW, but none at our mount -> foreign-prefix.
+  printf '#!/bin/sh\necho brew\n' > "$SANDBOX/realbrew"; chmod +x "$SANDBOX/realbrew"
+  export SB_BREW="$SANDBOX/realbrew"
+  run bash "$SB_ROOT/install.sh" --dry-run --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: foreign-prefix"* ]]
+  [[ "$output" == *"NOT safe to relocate"* ]]
+  [[ "$output" != *"migrating existing prefix"* ]]   # must NOT take the migrate path
+}

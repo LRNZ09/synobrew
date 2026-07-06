@@ -68,3 +68,14 @@ teardown() { rm -rf "$SANDBOX"; }
   [ "$status" -eq 0 ]
   [[ "$output" == *"ldd shim already present"* ]]
 }
+
+@test "restore.sh keeps a pre-existing non-synobrew ldd (does not clobber a real ldd)" {
+  printf '#!/bin/sh\necho "ldd (Ubuntu GLIBC 2.31-0ubuntu9) 2.31"\n' > "$SB_LDD"
+  chmod +x "$SB_LDD"
+  local before; before="$(cksum < "$SB_LDD")"
+  run bash "$SB_ROOT/restore.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"keeping existing non-synobrew ldd"* ]]
+  ! grep -q 'synobrew shim' "$SB_LDD"            # not overwritten with our shim
+  [ "$(cksum < "$SB_LDD")" = "$before" ]         # byte-for-byte unchanged
+}
