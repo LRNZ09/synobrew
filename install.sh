@@ -163,7 +163,10 @@ backup_if_present() {
     [ -e "$existing" ] && { log "backup already exists for $1; skipping"; return 0; }
   done
   local bak; bak="$(sb_bak_name "$1" "$SB_EPOCH")"
-  run cp -a "$1" "$bak"
+  # Copy via sudo: the target may be a root-owned system file (/etc/os-release,
+  # /usr/bin/ldd), so a non-root cp would EACCES and abort under set -e. sudo is
+  # already primed by sudo_keepalive (runs before apply_shims).
+  run "$SB_SUDO" cp -a "$1" "$bak"
   log "backed up $1 -> $bak"
 }
 
