@@ -258,10 +258,16 @@ maybe_install_brew() {
   fi
   if $DRY_RUN; then log "[dry-run] run official Homebrew installer from $SB_BREW_INSTALL_URL"; return; fi
   log "running official Homebrew installer..."
+  # Fetch into a variable so a failed download aborts. A bare
+  # `bash -c "$(curl ...)"` swallows curl's failure: on error curl prints
+  # nothing, `bash -c ""` exits 0, and the install would falsely "succeed".
+  local installer
+  installer="$("$SB_CURL" -fsSL "$SB_BREW_INSTALL_URL")" || die "failed to fetch the Homebrew installer from $SB_BREW_INSTALL_URL"
+  [ -n "$installer" ] || die "the Homebrew installer fetched from $SB_BREW_INSTALL_URL was empty"
   if $ASSUME_YES; then
-    NONINTERACTIVE=1 /bin/bash -c "$("$SB_CURL" -fsSL "$SB_BREW_INSTALL_URL")"
+    NONINTERACTIVE=1 /bin/bash -c "$installer"
   else
-    /bin/bash -c "$("$SB_CURL" -fsSL "$SB_BREW_INSTALL_URL")"
+    /bin/bash -c "$installer"
   fi
 }
 

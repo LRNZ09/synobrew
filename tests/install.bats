@@ -203,6 +203,17 @@ SH
   grep -q 'HOMEBREW_TEMP' "$SB_HOME/.profile"
 }
 
+@test "fresh install aborts (no silent success) if the Homebrew installer fetch fails" {
+  _full_sandbox_env
+  printf '#!/bin/sh\nexit 22\n' > "$SANDBOX/curl-fail"; chmod +x "$SANDBOX/curl-fail"
+  export SB_CURL="$SANDBOX/curl-fail"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"failed to fetch"* ]]
+  [ ! -x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew" ]   # no phantom brew
+  [[ "$output" != *"done."* ]]                       # never reports success
+}
+
 @test "shellenv is idempotent across two runs" {
   _full_sandbox_env
   run bash "$SB_ROOT/install.sh" --yes
