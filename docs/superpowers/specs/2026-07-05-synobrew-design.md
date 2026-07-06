@@ -68,7 +68,7 @@ Other preflight gates:
 ```tree
 synobrew/
 ├── install.sh              # one-shot installer, run over SSH — the thing to review
-├── restore.sh              # idempotent shims + bind mount; run by install.sh AND the boot task
+├── restore.sh              # idempotent shims + bind mount; run by install.sh (via sudo), NOT the boot task
 ├── lib/
 │   └── common.sh           # pure helpers shared by both scripts + unit-tested
 ├── tests/
@@ -80,9 +80,11 @@ synobrew/
 ```
 
 Two entry-point scripts, one shared helper library. Single source of truth: the
-shim/mount logic lives in `restore.sh`; `install.sh` calls it, and the boot task
-calls the installed copy. `lib/common.sh` holds only pure, side-effect-free
-functions so they can be unit-tested without a Synology.
+shim/mount logic lives in `restore.sh`, which `install.sh` runs (as root via
+`sudo`) for one-time setup. The boot task does **not** run `restore.sh` — reboot
+persistence is a self-contained inline `mount` command in the DSM Task Scheduler
+entry (§6, §12.7). `lib/common.sh` holds only pure, side-effect-free functions so
+they can be unit-tested without a Synology.
 
 ## 4. Component: `install.sh`
 
@@ -99,20 +101,20 @@ is both idempotent and the documented recovery path. Order:
    `$HOME/.tools/synobrew/prefix`). Report the detected state.
 4. **Confirm:** print exactly what the chosen action will change (`/usr/bin/ldd`,
    `/etc/os-release`, `/home/linuxbrew` bind mount, any prefix move
-   `<old> → $HOME/.tools/synobrew/prefix`, install of `restore.sh`, edit of the
-   shell rc file) and prompt; `--yes` skips.
+   `<old> → $HOME/.tools/synobrew/prefix`, edit of the shell rc file) and prompt;
+   `--yes` skips.
 5. **Apply shims + mount** by invoking `restore.sh` (idempotent, self-backing-up):
    ensure `/usr/bin/ldd`, `/etc/os-release`, and the `/home/linuxbrew` bind mount
    from the prefix store. On *migrate*, relocate the store first (§4a).
-6. **Install persistence artifact:** copy `restore.sh` to `$HOME/.tools/synobrew/restore.sh`
-   (a conventional `~/.tools/` grouping dir on the homes share → on the data
-   volume, survives DSM updates), `chmod 755`. Resolve it to its absolute
-   `/volumeX/homes/<user>/.tools/synobrew/restore.sh` path (via `readlink -f`)
-   and bake that into the printed Task Scheduler command and the README, since
-   the root boot task has no `$HOME`. Then **print** the exact DSM Task Scheduler
-   steps to register it as a boot task (see §6). The script cannot reliably
-   create Task Scheduler entries from the CLI, so this one step is manual and
-   documented.
+6. **Print the boot-task command:** resolve the prefix store to its physical
+   `/volumeX/homes/<user>/.tools/synobrew/prefix` path (via `pwd -P`, since the
+   root boot task has no `$HOME`) and **print** the exact DSM Task Scheduler steps
+   to register a Boot-up task whose command is the inline one-liner
+   `mkdir -p /home/linuxbrew && mount -o bind '<store>' /home/linuxbrew` (see §6).
+   No script is installed under the user's home — the command lives in DSM's
+   root-only Task Scheduler config, so nothing user-writable runs as root at boot
+   (§12.7). The tool cannot create Task Scheduler entries from the CLI, so this
+   one step is manual and documented.
 7. **Pre-authenticate sudo** (`sudo -v`) and start a short background keep-alive
    that refreshes the sudo timestamp every ~60s until the script exits (killed
    via an EXIT trap). This lets the long Homebrew install use `sudo` without
@@ -194,8 +196,9 @@ re-running is a no-op when already correct. Backs up any pre-existing target to
    whole homes share onto `/home` (which would expose every user's home) and
    `linuxbrew` never sits beside real user folders. Bind mounts are runtime-only
    and DSM regenerates `/etc/fstab` each boot, so this is re-applied at boot.
-   `PREFIX_STORE` + owner are absolute values baked into the installed
-   `restore.sh` (the root boot task has no `$HOME`).
+   The store's physical path is baked into the printed inline boot command (§6);
+   `restore.sh` itself receives `PREFIX_STORE` + owner from the `SB_*` env that
+   `install.sh` passes through `sudo` (the root boot task has no `$HOME`).
 2. **`/usr/bin/ldd` shim (REQUIRED):** a tiny script that parses the glibc
    version from `/usr/lib/libc.so.6` and prints `ldd <version>` (fallback a sane
    value ≥ 2.13). Rationale: Homebrew's `install.sh` runs `ldd --version` to
