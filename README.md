@@ -27,8 +27,9 @@ repair or migrate an existing install in place.
 - Bind-mounts **only** `/home/linuxbrew` from `~/.tools/synobrew/prefix` (never the whole homes share).
 - Writes a `/usr/bin/ldd` shim (Homebrew probes glibc via `ldd`; DSM has none).
 - Writes `/etc/os-release` (cosmetic — silences a per-command warning).
-- Installs `~/.tools/synobrew/restore.sh` + `synobrew.conf` and appends one `brew shellenv` line to your shell rc.
+- Installs **root-owned** `~/.tools/synobrew/restore.sh` + `synobrew.conf` (they are run/sourced by the root boot task, so must not be user-writable) and appends one `brew shellenv` line to your shell rc.
 - Existing system files are backed up as `<path>.synobrew.bak-<epoch>` before any overwrite.
+- On a **fresh** install (only when Homebrew isn't already present), it downloads and runs Homebrew's official installer via `curl | bash` from `raw.githubusercontent.com/Homebrew/install/HEAD` — this is inherent to Homebrew, not synobrew-specific. That revision is unpinned (`HEAD`); set `SB_BREW_INSTALL_URL` to a specific commit/tag to pin or audit it, and use `--dry-run` to see the action without running it.
 
 ## Install
 
