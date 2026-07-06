@@ -214,6 +214,24 @@ SH
   [[ "$output" != *"done."* ]]                       # never reports success
 }
 
+@test "apply_shims backs up a pre-existing non-synobrew ldd/os-release exactly once" {
+  _full_sandbox_env
+  printf 'REAL-OSRELEASE-SENTINEL\n' > "$SB_OSRELEASE"
+  printf '#!/bin/sh\necho "ldd (GNU libc) 2.31"\n' > "$SB_LDD"; chmod +x "$SB_LDD"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  osbak=$(compgen -G "$SB_OSRELEASE.synobrew.bak-*") || true
+  [ -n "$osbak" ]                                                       # a backup was made
+  [ "$(compgen -G "$SB_OSRELEASE.synobrew.bak-*" | wc -l | tr -d ' ')" -eq 1 ]
+  grep -q REAL-OSRELEASE-SENTINEL "$osbak"                              # it holds the ORIGINAL content
+  lddbak=$(compgen -G "$SB_LDD.synobrew.bak-*") || true
+  [ -n "$lddbak" ]; grep -q 'GNU libc' "$lddbak"
+  # second run: the files are now synobrew's own -> no additional backup piles up
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [ "$(compgen -G "$SB_OSRELEASE.synobrew.bak-*" | wc -l | tr -d ' ')" -eq 1 ]
+}
+
 @test "shellenv is idempotent across two runs" {
   _full_sandbox_env
   run bash "$SB_ROOT/install.sh" --yes

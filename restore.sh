@@ -61,11 +61,27 @@ EOF
 }
 
 ensure_osrelease() {
+  # Already our shim (marker present)? no-op — spec §5 "no-op when already correct".
+  if [ -e "$SB_OSRELEASE" ] && grep -q 'synobrew os-release shim' "$SB_OSRELEASE" 2>/dev/null; then
+    log "os-release shim already present: $SB_OSRELEASE"; return
+  fi
   if $DRY_RUN; then printf '[dry-run] write os-release -> %s\n' "$SB_OSRELEASE" >&2; return; fi
+  # A foreign (non-synobrew) os-release we have not backed up yet -> preserve it
+  # once. A prior .bak means install.sh's backup_if_present or an earlier boot
+  # already saved the original, so we don't accumulate a backup every reboot.
+  if [ -e "$SB_OSRELEASE" ]; then
+    local had_bak=false b
+    for b in "$SB_OSRELEASE".synobrew.bak-*; do [ -e "$b" ] && { had_bak=true; break; }; done
+    if ! $had_bak; then
+      cp -a "$SB_OSRELEASE" "${SB_OSRELEASE}.synobrew.bak-$(date +%s)" 2>/dev/null || true
+      log "backed up existing os-release before overwriting: $SB_OSRELEASE"
+    fi
+  fi
   local pv
   # shellcheck source=/dev/null
   pv="$( . "$SB_DSM_VERSION_FILE" 2>/dev/null; echo "${productversion:-7}" )"
   cat > "$SB_OSRELEASE" <<EOF
+# synobrew os-release shim
 NAME="Synology DSM"
 ID=synology
 ID_LIKE=linux

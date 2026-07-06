@@ -158,8 +158,17 @@ SB_EPOCH="${SB_EPOCH:-$(date +%s)}"
 SB_KEEPALIVE_INTERVAL="${SB_KEEPALIVE_INTERVAL:-50}"
 
 backup_if_present() {
-  # $1 path: if it exists and is not already our shim/file, copy to a .bak.
+  # Back up a genuine PRE-EXISTING (non-synobrew) file exactly once, before we
+  # first overwrite it. Skip our own shim/file, and skip if we already backed it
+  # up on an earlier run — so idempotent re-runs don't accumulate junk backups.
   [ -e "$1" ] || return 0
+  if { "$1" --version 2>/dev/null || cat "$1" 2>/dev/null; } | grep -q synobrew; then
+    log "already synobrew's own $1; not backing up"; return 0
+  fi
+  local existing
+  for existing in "$1".synobrew.bak-*; do
+    [ -e "$existing" ] && { log "backup already exists for $1; skipping"; return 0; }
+  done
   local bak; bak="$(sb_bak_name "$1" "$SB_EPOCH")"
   run cp -a "$1" "$bak"
   log "backed up $1 -> $bak"
