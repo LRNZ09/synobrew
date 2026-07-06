@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
 # restore.sh — idempotently (re)create synobrew's DSM shims + prefix bind mount.
-# Runs from install.sh AND from the DSM boot-up Task Scheduler task (as root).
-# Self-contained: at boot $HOME is unset, so it reads its absolute config from a
-# sibling synobrew.conf (written by install.sh). Assumes install.sh already made
-# one-time backups of any pre-existing /usr/bin/ldd or /etc/os-release.
+# Run by install.sh (as root, via sudo) to set up the mount + ldd/os-release
+# shims. The DSM boot task does NOT run this script: reboot persistence is a
+# self-contained inline `mount` command in the Task Scheduler entry (root-only
+# config), so no user-owned file is executed as root at boot. Config comes from
+# the SB_* env install.sh passes through sudo (production defaults below).
 set -euo pipefail
 
 DRY_RUN=false
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=true
-
-DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck source=/dev/null
-[ -r "${DIR}/synobrew.conf" ] && . "${DIR}/synobrew.conf"
 
 SB_PREFIX_MOUNT="${SB_PREFIX_MOUNT:-/home/linuxbrew}"
 SB_PREFIX_STORE="${SB_PREFIX_STORE:-${HOME:-/root}/.tools/synobrew/prefix}"
@@ -34,8 +31,7 @@ ensure_mount() {
     log "bind-mounted $SB_PREFIX_STORE -> $SB_PREFIX_MOUNT"
   fi
   run chown "$SB_OWNER" "$SB_PREFIX_MOUNT"
-  # The store must be user-owned too (brew owns its prefix), even though its
-  # parent dir ($SB_TOOLS_DIR) is deliberately root-owned for the boot task.
+  # The store must be user-owned too — brew owns its prefix.
   run chown "$SB_OWNER" "$SB_PREFIX_STORE"
 }
 

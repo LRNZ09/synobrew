@@ -106,13 +106,11 @@ SH
 # real /home/linuxbrew, no real brew).
 _full_sandbox_env() {
   export SB_PREFIX_MOUNT="$SANDBOX/home_linuxbrew"
-  export SB_TOOLS_DIR="$SANDBOX/tools"
-  export SB_PREFIX_STORE="$SANDBOX/tools/prefix"   # nested under tools dir, mirroring production ($HOME/.tools/synobrew/{,prefix})
+  export SB_PREFIX_STORE="$SANDBOX/store"
   export SB_LDD="$SANDBOX/ldd"
   export SB_OSRELEASE="$SANDBOX/os-release"
   export SB_LIBC="/no/libc"
   export SB_BREW="$SANDBOX/no-such-brew"      # nothing "elsewhere" unless a test sets it
-  export SB_ROOT_OWNER="$(id -un):$(id -gn)"  # same-user sudo stub can only chown to self
   export SHELL="/bin/bash"
 
   # no-op sudo passthrough: drop -v/-k, strip -n, exec the rest (incl. `env`)
@@ -184,11 +182,9 @@ SH
   [[ "$output" == *"[dry-run]"* ]]
   [[ "$output" == *"Task Scheduler"* ]]
   [[ "$output" == *"official Homebrew installer"* ]]
-  # The boot-task "Run command" must be the real absolute path, not a broken
-  # "/restore.sh" (the target dir is absent under --dry-run, so the path
-  # computation must fall back to the literal dir rather than collapse to empty).
-  [[ "$output" == *"$SB_TOOLS_DIR/restore.sh"* ]]
-  [[ "$output" != *"Run command:  /restore.sh"* ]]
+  # Boot task is an inline mount command (no installed script). Under --dry-run
+  # the store dir is absent, so the path falls back to the literal store.
+  [[ "$output" == *"mount -o bind '$SB_PREFIX_STORE' $SB_PREFIX_MOUNT"* ]]
 }
 
 @test "fresh install (real, sandboxed) installs via the stub + writes persistence + shellenv" {
@@ -197,8 +193,9 @@ SH
   [ "$status" -eq 0 ]
   [[ "$output" == *"state: fresh"* ]]
   [ -x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew" ]
-  [ -x "$SB_TOOLS_DIR/restore.sh" ]
-  grep -q "SB_PREFIX_STORE=" "$SB_TOOLS_DIR/synobrew.conf"
+  [[ "$output" == *"mount -o bind"* ]]      # inline boot task printed (no installed script)
+  [[ "$output" == *"$SB_PREFIX_MOUNT"* ]]
+  [ -d "$SB_PREFIX_STORE" ]                  # store created (and chowned user-owned)
   grep -q 'brew shellenv' "$SB_HOME/.profile"
   grep -q 'HOMEBREW_TEMP' "$SB_HOME/.profile"
 }

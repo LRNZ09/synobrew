@@ -27,7 +27,7 @@ repair or migrate an existing install in place.
 - Bind-mounts **only** `/home/linuxbrew` from `~/.tools/synobrew/prefix` (never the whole homes share).
 - Writes a `/usr/bin/ldd` shim (Homebrew probes glibc via `ldd`; DSM has none).
 - Writes `/etc/os-release` (cosmetic — silences a per-command warning).
-- Installs **root-owned** `~/.tools/synobrew/restore.sh` + `synobrew.conf` (they are run/sourced by the root boot task, so must not be user-writable) and appends one `brew shellenv` line to your shell rc.
+- Registers a **DSM boot task** that runs a one-line `mount` command held in DSM's own root-only config (nothing is installed under your home for the root boot task to run), and appends one `brew shellenv` line to your shell rc.
 - Existing system files are backed up as `<path>.synobrew.bak-<epoch>` before any overwrite.
 - On a **fresh** install (only when Homebrew isn't already present), it downloads and runs Homebrew's official installer via `curl | bash` from `raw.githubusercontent.com/Homebrew/install/HEAD` — this is inherent to Homebrew, not synobrew-specific. That revision is unpinned (`HEAD`); set `SB_BREW_INSTALL_URL` to a specific commit/tag to pin or audit it, and use `--dry-run` to see the action without running it.
 
@@ -42,18 +42,20 @@ less install.sh restore.sh lib/common.sh   # review before running
 
 ## Make it survive reboots (one manual step)
 
-The bind mount is runtime-only. After install, register the printed boot task:
+The bind mount is runtime-only. After install, register the boot task with the
+**exact command the installer prints** (a one-line bind mount — no script file):
 
 1. DSM → Control Panel → **Task Scheduler** → Create → **Triggered Task** → User-defined script.
 2. **User:** `root`. **Event:** `Boot-up`.
-3. **Run command:** the absolute path the installer printed, e.g.
-   `/volume1/homes/<you>/.tools/synobrew/restore.sh`
+3. **Run command:** paste the printed line, e.g.
+   `mkdir -p /home/linuxbrew && mount -o bind '/volume1/homes/<you>/.tools/synobrew/prefix' /home/linuxbrew`
 
-`restore.sh` re-creates the mount and both shims idempotently on every boot.
+The command lives in DSM's root-only config, so no file under your home runs as
+root at boot. It only re-creates the bind mount.
 
 ## After reboots vs after DSM updates
 
-- **Reboot:** the boot task restores everything automatically.
+- **Reboot:** the boot task re-creates the mount automatically (the `ldd`/`os-release` shims persist across reboots).
 - **DSM update:** a major update can wipe `/etc`, `/usr/bin`, and even the Task
   Scheduler entry. If Homebrew looks broken after an update, just re-run
   `./install.sh` — it is idempotent and repairs whatever is missing.
@@ -79,7 +81,7 @@ The bind mount is runtime-only. After install, register the printed boot task:
 sudo rm -f /usr/bin/ldd /etc/os-release
 # 3. Unmount and remove the mount point (only if empty / you created it):
 sudo umount /home/linuxbrew && sudo rmdir /home/linuxbrew 2>/dev/null || true
-# 4. Delete the boot task in Task Scheduler, and remove:
+# 4. Delete the Boot-up task in Task Scheduler, then remove the prefix store:
 rm -rf ~/.tools/synobrew
 # 5. Remove the 'brew shellenv' line from your shell rc (~/.profile, ~/.zshrc, or ~/.config/fish/config.fish).
 ```
