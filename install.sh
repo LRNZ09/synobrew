@@ -21,6 +21,8 @@ SB_DSM_VERSION_FILE="${SB_DSM_VERSION_FILE:-/etc.defaults/VERSION}"
 SB_LIBC="${SB_LIBC:-/usr/lib/libc.so.6}"
 SB_HOMES_DIR="${SB_HOMES_DIR:-/var/services/homes}"
 SB_MOUNT="${SB_MOUNT:-mount}"
+SB_MOUNTPOINT="${SB_MOUNTPOINT:-mountpoint}"   # injectable; detects a whole-homes /home mount during migrate
+SB_PGREP="${SB_PGREP:-pgrep}"                  # injectable; guarded (may be absent on DSM's base userland)
 SB_SUDO="${SB_SUDO:-sudo}"
 SB_UNAME_M="${SB_UNAME_M:-$(uname -m)}"
 SB_GIT="${SB_GIT:-git}"
@@ -129,7 +131,7 @@ EOF
 detect_state() {
   local brew_std=0 mount=0 same=0 elsewhere=0
   [ -x "${SB_PREFIX_MOUNT}/.linuxbrew/bin/brew" ] && brew_std=1
-  if mountpoint -q "$SB_PREFIX_MOUNT" 2>/dev/null; then mount=1; fi
+  if "$SB_MOUNTPOINT" -q "$SB_PREFIX_MOUNT" 2>/dev/null; then mount=1; fi
   if [ "$mount" = 1 ] && \
      [ -n "$(sb_dev_inode "$SB_PREFIX_MOUNT")" ] && \
      [ "$(sb_dev_inode "$SB_PREFIX_MOUNT")" = "$(sb_dev_inode "$SB_PREFIX_STORE")" ]; then
@@ -185,19 +187,32 @@ migrate_prefix() {
   # backing dir and `mv`-ing it. This handles both the bind-mount and
   # plain-dir foreign cases with one code path and is easier to audit.
   local mnt="$SB_PREFIX_MOUNT" store="$SB_PREFIX_STORE"
-  if pgrep -x brew >/dev/null 2>&1; then die "a 'brew' process is running; stop it and retry."; fi
+  if command -v "$SB_PGREP" >/dev/null 2>&1; then
+    "$SB_PGREP" -x brew >/dev/null 2>&1 && die "a 'brew' process is running; stop it and retry."
+  else
+    warn "cannot check for a running brew ($SB_PGREP unavailable); ensure no 'brew' process is active before continuing."
+  fi
+  # If the whole homes share is bind-mounted onto the PARENT (e.g. /home) — a
+  # cdalvaro/MrCee-style setup — auto-unmounting it is too drastic (it drops
+  # every user's home). Refuse with instructions rather than migrate into a live
+  # share or leave the exposure in place. Checked BEFORE copying anything.
+  if ! "$SB_MOUNTPOINT" -q "$mnt" 2>/dev/null && "$SB_MOUNTPOINT" -q "$(dirname "$mnt")" 2>/dev/null; then
+    die "the whole homes share appears mounted at $(dirname "$mnt"); synobrew will not unmount it for you. Unmount it manually (your data stays at /volume1/homes) and re-run, or remove that mount."
+  fi
   [ ! -e "${store}/.linuxbrew" ] || die "target store ${store}/.linuxbrew already exists; move it aside and retry (never clobbered)."
-  log "migrating existing prefix into ${store} (a snapshot first is recommended)."
+  log "migrating existing prefix into ${store} (a DSM snapshot first is recommended)."
   run mkdir -p "${store}/.linuxbrew"
-  run "$SB_RSYNC" -aHAX --numeric-ids "${mnt}/.linuxbrew/" "${store}/.linuxbrew/"
+  # -aH (not -aHAX): a Linuxbrew prefix needs ownership/mode/hardlinks preserved,
+  # not POSIX ACLs/xattrs — and DSM's stock rsync may lack -A/-X support.
+  run "$SB_RSYNC" -aH --numeric-ids "${mnt}/.linuxbrew/" "${store}/.linuxbrew/"
   if ! $DRY_RUN; then
     [ -x "${store}/.linuxbrew/bin/brew" ] || die "migration copy failed: no brew at ${store}/.linuxbrew/bin/brew"
   fi
-  if mountpoint -q "$mnt" 2>/dev/null; then
+  if "$SB_MOUNTPOINT" -q "$mnt" 2>/dev/null; then
     run "$SB_SUDO" umount "$mnt" || run "$SB_SUDO" umount -l "$mnt"
   elif [ -d "${mnt}/.linuxbrew" ]; then
     run mv "${mnt}/.linuxbrew" "${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH}"
-    log "old prefix left at ${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH} for manual removal."
+    log "old prefix moved to ${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH}; it will be HIDDEN beneath the new bind mount. To remove it later: sudo umount ${mnt} && sudo rm -rf ${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH} (then reboot or re-run restore.sh)."
   fi
 }
 

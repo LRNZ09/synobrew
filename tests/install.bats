@@ -247,3 +247,23 @@ SH
   [ "$status" -eq 1 ]
   [[ "$output" == *"already exists"* ]]
 }
+
+@test "migrate refuses (before copying) when the whole homes share is mounted at the parent" {
+  _full_sandbox_env
+  # brew at the sandbox mount -> foreign-backing; stub mountpoint so only the
+  # PARENT (dirname of the mount, the whole-homes /home case) reports mounted.
+  mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin"
+  printf '#!/bin/sh\necho brew\n' > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  cat > "$SANDBOX/mountpoint-stub" <<SH
+#!/bin/sh
+# args: -q PATH ; report only the parent (whole-homes) dir as a mountpoint
+[ "\$2" = "$(dirname "$SB_PREFIX_MOUNT")" ] && exit 0
+exit 1
+SH
+  chmod +x "$SANDBOX/mountpoint-stub"; export SB_MOUNTPOINT="$SANDBOX/mountpoint-stub"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"whole homes share"* ]]
+  [ ! -e "$SB_PREFIX_STORE/.linuxbrew" ]   # refused before any copy
+}
