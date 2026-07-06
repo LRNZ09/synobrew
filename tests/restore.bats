@@ -79,3 +79,13 @@ teardown() { rm -rf "$SANDBOX"; }
   ! grep -q 'synobrew shim' "$SB_LDD"            # not overwritten with our shim
   [ "$(cksum < "$SB_LDD")" = "$before" ]         # byte-for-byte unchanged
 }
+
+@test "restore.sh backs up a foreign os-release only once (no per-boot accumulation)" {
+  printf 'FOREIGN\n' > "$SB_OSRELEASE"
+  printf 'FOREIGN\n' > "${SB_OSRELEASE}.synobrew.bak-100"   # a pre-existing (old-epoch) backup
+  run bash "$SB_ROOT/restore.sh"
+  [ "$status" -eq 0 ]
+  # the had_bak guard must see the old backup and NOT create a second one
+  [ "$(compgen -G "${SB_OSRELEASE}.synobrew.bak-*" | wc -l | tr -d ' ')" -eq 1 ]
+  grep -q 'synobrew os-release shim' "$SB_OSRELEASE"        # shim written
+}

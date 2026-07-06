@@ -172,6 +172,11 @@ for last in "$@"; do :; done          # last arg = the URL == local installer pa
 cat "$last"
 SH
   chmod +x "$SANDBOX/curl-stub"; export SB_CURL="$SANDBOX/curl-stub"
+
+  # pgrep stub: report no running 'brew' (deterministic; never read the host's
+  # process table, which would make the migrate tests host-dependent).
+  printf '#!/bin/sh\nexit 1\n' > "$SANDBOX/pgrep-none"; chmod +x "$SANDBOX/pgrep-none"
+  export SB_PGREP="$SANDBOX/pgrep-none"
 }
 
 @test "fresh install (dry-run) reports all planned actions" {
