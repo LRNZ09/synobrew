@@ -251,6 +251,7 @@ SH
   run bash "$SB_ROOT/install.sh" --yes
   [ "$status" -eq 0 ]
   [[ "$output" == *"state: foreign-backing"* ]]
+  [[ "$output" == *"RELOCATED"* ]]   # the confirm discloses the prefix data move (spec §4.4)
   [ -x "$SB_PREFIX_STORE/.linuxbrew/bin/brew" ]
   grep -q payload "$SB_PREFIX_STORE/.linuxbrew/marker.txt"
   compgen -G "$SB_PREFIX_MOUNT/.linuxbrew.synobrew-old-*" > /dev/null

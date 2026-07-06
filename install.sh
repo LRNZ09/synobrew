@@ -108,8 +108,8 @@ EOF
     blocked) die "DSM $prod is too old; DSM 7.1+ required (7.2+ recommended)." ;;
   esac
 
-  if [ ! -d "$SB_HOMES_DIR" ] && [ ! -d "$SB_HOME" ]; then
-    die "user home service not enabled ($SB_HOMES_DIR missing). Enable Control Panel > User & Group > Advanced > User Home, then re-run."
+  if [ ! -d "$SB_HOME" ]; then
+    die "your home directory is missing ($SB_HOME). Enable Control Panel > User & Group > Advanced > User Home (homes live under $SB_HOMES_DIR), then re-run."
   fi
 
   if ! command -v "$SB_GIT" >/dev/null 2>&1; then
@@ -358,6 +358,11 @@ main() {
     foreign-prefix)
       warn "an existing Homebrew was found at a non-standard prefix. It is NOT safe to relocate (bottles are path-specific)."
       confirm "install a fresh Homebrew at the standard prefix alongside it?" || die "aborted by user."
+      ;;
+    foreign-backing)
+      warn "an existing Homebrew prefix will be RELOCATED: its contents under ${SB_PREFIX_MOUNT}/.linuxbrew are copied into ${SB_PREFIX_STORE} (the logical path is unchanged). A DSM snapshot first is recommended."
+      confirm "proceed — move the prefix data to ${SB_PREFIX_STORE} and change /usr/bin/ldd, /etc/os-release, ${SB_PREFIX_MOUNT}, and your shell rc?" \
+        || die "aborted by user."
       ;;
     *)
       confirm "proceed with synobrew ($state) — will change /usr/bin/ldd, /etc/os-release, ${SB_PREFIX_MOUNT}, and your shell rc?" \
