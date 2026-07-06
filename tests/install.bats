@@ -106,12 +106,13 @@ SH
 # real /home/linuxbrew, no real brew).
 _full_sandbox_env() {
   export SB_PREFIX_MOUNT="$SANDBOX/home_linuxbrew"
-  export SB_PREFIX_STORE="$SANDBOX/store"
   export SB_TOOLS_DIR="$SANDBOX/tools"
+  export SB_PREFIX_STORE="$SANDBOX/tools/prefix"   # nested under tools dir, mirroring production ($HOME/.tools/synobrew/{,prefix})
   export SB_LDD="$SANDBOX/ldd"
   export SB_OSRELEASE="$SANDBOX/os-release"
   export SB_LIBC="/no/libc"
   export SB_BREW="$SANDBOX/no-such-brew"      # nothing "elsewhere" unless a test sets it
+  export SB_ROOT_OWNER="$(id -un):$(id -gn)"  # same-user sudo stub can only chown to self
   export SHELL="/bin/bash"
 
   # no-op sudo passthrough: drop -v/-k, strip -n, exec the rest (incl. `env`)

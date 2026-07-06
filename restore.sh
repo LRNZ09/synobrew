@@ -34,6 +34,9 @@ ensure_mount() {
     log "bind-mounted $SB_PREFIX_STORE -> $SB_PREFIX_MOUNT"
   fi
   run chown "$SB_OWNER" "$SB_PREFIX_MOUNT"
+  # The store must be user-owned too (brew owns its prefix), even though its
+  # parent dir ($SB_TOOLS_DIR) is deliberately root-owned for the boot task.
+  run chown "$SB_OWNER" "$SB_PREFIX_STORE"
 }
 
 ensure_ldd() {
