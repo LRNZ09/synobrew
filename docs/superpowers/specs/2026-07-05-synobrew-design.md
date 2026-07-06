@@ -170,9 +170,11 @@ Every detection/migration action honors `--dry-run` and the confirmation prompt.
 
 ## 5. Component: `restore.sh` (idempotent shims + mount)
 
-Runs from `install.sh` and from the boot task (as root at boot). Each operation
-is guarded so re-running is a no-op when already correct. Backs up any
-pre-existing target to `<path>.synobrew.bak-<epoch>` before overwriting.
+Run by `install.sh` (as root via `sudo`) to set up the mount + shims. The DSM
+boot task does **not** run this script — reboot persistence is an inline `mount`
+command in the Task Scheduler entry (§6, §12.7). Each operation is guarded so
+re-running is a no-op when already correct. Backs up any pre-existing target to
+`<path>.synobrew.bak-<epoch>` before overwriting.
 
 1. **Bind-mount the prefix store onto `/home/linuxbrew`:**
 
@@ -208,34 +210,38 @@ pre-existing target to `<path>.synobrew.bak-<epoch>` before overwriting.
 
 ## 6. Persistence architecture (Task Scheduler)
 
-- **Bind mount:** never survives reboot → recreated every boot by the task.
+- **Bind mount:** never survives reboot → recreated every boot by the boot task
+  (a self-contained inline `mount` command; see below).
 - **`ldd` shim / `os-release`:** survive plain reboots but are wiped by DSM
   updates (system partition is re-flashed; `/etc` can regenerate from
-  `/etc.defaults`). The boot task re-runs `restore.sh`, which re-applies all of
-  them, so the setup self-heals across most updates.
-- **`restore.sh` and the prefix store** both live under
-  `$HOME/.tools/synobrew/` on the homes share (data volume) and survive DSM
-  updates: `restore.sh` at `.../restore.sh` and the brew prefix bind-mounted
+  `/etc.defaults`). They are applied at install time and, after a DSM update
+  that wipes them, restored by re-running the idempotent `install.sh` — the boot
+  task itself only re-creates the mount (see §12.7).
+- **The prefix store** lives under `$HOME/.tools/synobrew/prefix` on the homes
+  share (data volume) and survives DSM updates: the brew prefix is bind-mounted
   from `.../prefix` (so `/home/linuxbrew/.linuxbrew` →
-  `/volumeX/homes/<user>/.tools/synobrew/prefix/.linuxbrew`). If that homes
-  share is an *encrypted* shared folder and unmounted at boot, both are
-  unavailable until it is unlocked — an acceptable, documented edge case since
-  brew is unusable then regardless.
+  `/volumeX/homes/<user>/.tools/synobrew/prefix/.linuxbrew`). If that homes share
+  is an *encrypted* shared folder and unmounted at boot, it is unavailable until
+  unlocked — an acceptable, documented edge case since brew is unusable then
+  regardless.
 
 **Boot task (manual, one time, README-documented):** Control Panel → Task
 Scheduler → Create → Triggered Task → User-defined script; **User = root**,
-**Event = Boot-up**; command: the absolute path baked in at install time, e.g.
-`/volume1/homes/<user>/.tools/synobrew/restore.sh`. Must be root (`mount`/`chown`
-need it; `sudo` does not work inside DSM tasks).
+**Event = Boot-up**; command: an inline one-liner baked at install time, e.g.
+`mkdir -p /home/linuxbrew && mount -o bind '/volume1/homes/<user>/.tools/synobrew/prefix' /home/linuxbrew`.
+Must be root (`mount` needs it; `sudo` does not work inside DSM tasks). The
+command lives in DSM's root-only Task Scheduler config, so **no script under the
+user's home runs as root at boot** (see §12.7); root only bind-mounts the
+user-owned prefix store, whose contents are never executed.
 
 **Why Task Scheduler over systemd:** verified research found Task Scheduler
 entries (stored in DSM's config DB) survive DSM major updates better than
 `/etc/systemd/system` units, which can be wiped. Task Scheduler is also the
 Synology-native norm (used by cdalvaro and MrCee).
 
-**README must state:** the boot task restores everything after a *reboot*; after
-a DSM *update* that also removed the boot task or `restore.sh`, re-run the
-idempotent `install.sh`.
+**README must state:** the boot task re-creates the mount after a *reboot*; the
+`ldd`/`os-release` shims persist across plain reboots, and after a DSM *update*
+that wipes them (or the Task Scheduler entry), re-run the idempotent `install.sh`.
 
 ## 7. Shell environment setup (idempotent, per shell)
 
@@ -308,6 +314,20 @@ handoff. **Kept:** the four DSM gap-fixes (minimized), the arch/DSM gate, the
 5. Arch gate must use `uname -m`, never model name; aarch64 = allow-with-warning,
    32-bit = hard-block.
 6. glibc version is informational, not a hard blocker.
+7. **Boot task = inline `mount`, not an installed `restore.sh`.** A root-run
+   script under the user's home is a privilege-escalation vector: a process
+   compromised as the user could rename an ancestor directory it owns and
+   substitute its own script for root to run at boot (root-owning the leaf file
+   does not help). The DSM Task Scheduler command — stored in DSM's root-only
+   config — does the bind mount inline instead, so root never executes a
+   user-controllable file. `restore.sh` is retained only as install.sh's
+   one-time setup helper (mount + shims), run as root via `sudo`.
+8. **Prefix migration copies via `rsync` from the mounted view** (deviating from
+   §4a's same-fs `mv` optimization): one code path covers both the bind-mount
+   and plain-dir cases and is easier to audit. It uses `rsync -aH` (not
+   `-aHAX`) — a brew prefix needs ownership/mode/hardlinks, not ACLs/xattrs, and
+   DSM's stock `rsync` may lack `-A`/`-X`. The whole-homes-share-on-`/home` case
+   is **refused with instructions** rather than auto-unmounted (too drastic).
 
 ## 13. Open questions
 

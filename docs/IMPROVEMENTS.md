@@ -34,9 +34,10 @@ as *requirements*, the temporary passwordless-sudoers fragment, and the
 `exec zsh` / `ln -sf …/zsh /bin/zsh` shell handoff.
 
 **Kept (minimized):** the DSM gap-fixes (`ldd` shim + `/home/linuxbrew` mount,
-plus a cosmetic `os-release`), the arch/DSM preflight gate, the boot task that
-re-applies everything (the mount is runtime-only and DSM regenerates
-`/etc/fstab` each boot), refuse-as-root, and idempotency guards.
+plus a cosmetic `os-release`), the arch/DSM preflight gate, an inline DSM
+Task Scheduler boot command that re-creates the runtime-only bind mount (DSM
+regenerates `/etc/fstab` each boot, so fstab won't persist it; no root-run
+script lives under the user's home), refuse-as-root, and idempotency guards.
 
 ## Verified corrections (from research + adversarial review)
 
