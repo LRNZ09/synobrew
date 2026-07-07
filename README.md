@@ -1,6 +1,6 @@
-# synobrew
+# Synobrew
 
-A small, **auditable** installer for Homebrew (Linuxbrew) on Synology DSM 7.x —
+`synobrew`[^liber] is a small, auditable installer for Homebrew (Linuxbrew) on Synology DSM 7.x —
 a minimal alternative to heavier setups. It makes the few DSM-specific fixes
 Homebrew needs, keeps them alive across reboots via a DSM boot task, and can
 repair or migrate an existing install in place.
@@ -108,3 +108,7 @@ bats tests/
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+[^liber]: Had it wanted a mythological patron, the obvious pick was **Liber** —
+    the Roman god of brewing and fermentation, whose name also happens to mean
+    *free*. A fitting one for a free thing that brews.
