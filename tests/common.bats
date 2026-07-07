@@ -130,28 +130,23 @@ setup() { load_common; }
   [ "$output" = "/etc/os-release.synobrew.bak-1720000000" ]
 }
 
-@test "sb_classify_state: managed" {
-  run sb_classify_state 1 1 1 0
+@test "sb_classify_state: managed (brew at std prefix + store mounted there)" {
+  run sb_classify_state 1 1 0
   [ "$output" = "managed" ]
 }
 
-@test "sb_classify_state: foreign-backing when mounted elsewhere" {
-  run sb_classify_state 1 1 0 0
-  [ "$output" = "foreign-backing" ]
-}
-
-@test "sb_classify_state: foreign-backing when brew present but not mounted" {
-  run sb_classify_state 1 0 0 0
+@test "sb_classify_state: foreign-backing (brew at std prefix but store not mounted there)" {
+  run sb_classify_state 1 0 0
   [ "$output" = "foreign-backing" ]
 }
 
 @test "sb_classify_state: foreign-prefix" {
-  run sb_classify_state 0 0 0 1
+  run sb_classify_state 0 0 1
   [ "$output" = "foreign-prefix" ]
 }
 
 @test "sb_classify_state: fresh" {
-  run sb_classify_state 0 0 0 0
+  run sb_classify_state 0 0 0
   [ "$output" = "fresh" ]
 }
 

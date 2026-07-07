@@ -81,12 +81,15 @@ sb_bak_name() {
 }
 
 sb_classify_state() {
-  # $1 brew_at_std(0/1) $2 mount_present(0/1) $3 same_backing(0/1) $4 brew_elsewhere(0/1)
+  # $1 brew_at_std(0/1)  $2 same_backing(0/1)  $3 brew_elsewhere(0/1)
+  # "Managed" == our store is currently mounted at the standard prefix, decided by
+  # dev:inode equality (see detect_state) — reliable even where `mountpoint` is
+  # absent/broken (DSM's busybox), which the old mount-flag check depended on.
   if [ "${1:-0}" = 1 ]; then
-    if [ "${2:-0}" = 1 ] && [ "${3:-0}" = 1 ]; then echo managed; else echo foreign-backing; fi
+    if [ "${2:-0}" = 1 ]; then echo managed; else echo foreign-backing; fi
     return
   fi
-  if [ "${4:-0}" = 1 ]; then echo foreign-prefix; return; fi
+  if [ "${3:-0}" = 1 ]; then echo foreign-prefix; return; fi
   echo fresh
 }
 

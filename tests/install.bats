@@ -16,9 +16,12 @@ setup() {
   export SB_PREFIX_STORE="$SANDBOX/store"
   export SB_BREW="$SANDBOX/no-such-brew"
   export SB_KEEPALIVE_INTERVAL=1   # keep the sudo keep-alive's orphaned sleep short so bats doesn't block on it
-  # Pin shell detection so persist_shellenv is deterministic (never reads the host's $SHELL / parent process).
+  # Pin shell + git detection so persist_shellenv is hermetic (never reads the host's
+  # $SHELL, parent process, or git).
   export SHELL="/bin/bash"
   export SB_PARENT_COMM="bash"
+  printf '#!/bin/sh\necho "git version 2.40.1"\n' > "$SANDBOX/git-stub"
+  chmod +x "$SANDBOX/git-stub"; export SB_GIT="$SANDBOX/git-stub"
 }
 
 teardown() { rm -rf "$SANDBOX"; }
@@ -90,6 +93,24 @@ teardown() { rm -rf "$SANDBOX"; }
   [[ "$output" == *"state: fresh"* ]]
 }
 
+@test "detect_state: managed when the store is mounted at the prefix (dev:inode match, no mountpoint)" {
+  # Regression: a re-run of a synobrew-managed install must be detected as 'managed',
+  # NOT re-migrated. A live bind mount makes the prefix and the store the same
+  # directory (identical dev:inode); model that with a single shared path — a real
+  # bind mount needs root and isn't available in CI, and a symlink isn't portable
+  # (BSD stat doesn't follow a final-component symlink). This exercises the dev:inode
+  # check that replaced the DSM-unreliable `mountpoint` probe.
+  mkdir -p "$SANDBOX/managed/.linuxbrew/bin"
+  printf '#!/bin/sh\necho brew\n' > "$SANDBOX/managed/.linuxbrew/bin/brew"
+  chmod +x "$SANDBOX/managed/.linuxbrew/bin/brew"
+  export SB_PREFIX_MOUNT="$SANDBOX/managed"
+  export SB_PREFIX_STORE="$SANDBOX/managed"
+  run bash "$SB_ROOT/install.sh" --dry-run
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: managed"* ]]
+  [[ "$output" != *"RELOCATED"* ]]   # must NOT attempt migration
+}
+
 @test "detect_state: foreign-backing when a real (unmounted) prefix exists" {
   export SB_PREFIX_MOUNT="$SANDBOX/home_linuxbrew"
   export SB_PREFIX_STORE="$SANDBOX/store"
@@ -114,13 +135,8 @@ _full_sandbox_env() {
   export SB_OSRELEASE="$SANDBOX/os-release"
   export SB_LIBC="/no/libc"
   export SB_BREW="$SANDBOX/no-such-brew"      # nothing "elsewhere" unless a test sets it
-  export SHELL="/bin/bash"
-  export SB_PARENT_COMM="bash"
-
-  # git stub: a new-enough system git, so HOMEBREW_GIT_PATH is set deterministically
-  # (no dependence on the host's git). Tests override SB_GIT for old/absent cases.
-  printf '#!/bin/sh\necho "git version 2.40.1"\n' > "$SANDBOX/git-stub"
-  chmod +x "$SANDBOX/git-stub"; export SB_GIT="$SANDBOX/git-stub"
+  # SHELL / SB_PARENT_COMM / SB_GIT (a new-enough git stub) are pinned in setup().
+  # Tests override SB_GIT for old/absent-git cases.
 
   # no-op sudo passthrough: drop -v/-k, strip -n, exec the rest (incl. `env`)
   cat > "$SANDBOX/sudo" <<'SH'

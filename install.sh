@@ -133,19 +133,22 @@ EOF
 }
 
 detect_state() {
-  local brew_std=0 mount=0 same=0 elsewhere=0
+  local brew_std=0 same=0 elsewhere=0
   [ -x "${SB_PREFIX_MOUNT}/.linuxbrew/bin/brew" ] && brew_std=1
-  if "$SB_MOUNTPOINT" -q "$SB_PREFIX_MOUNT" 2>/dev/null; then mount=1; fi
-  if [ "$mount" = 1 ] && \
-     [ -n "$(sb_dev_inode "$SB_PREFIX_MOUNT")" ] && \
-     [ "$(sb_dev_inode "$SB_PREFIX_MOUNT")" = "$(sb_dev_inode "$SB_PREFIX_STORE")" ]; then
-    same=1
-  fi
+  # "Managed" == our store is currently bind-mounted at the prefix. dev:inode
+  # equality of the two paths is the ground truth (a bind mount makes them the
+  # same directory) and works for bind mounts even on DSM's busybox userland,
+  # which may not provide a working `mountpoint` — the old mountpoint-based check
+  # reported "not mounted" on DSM and re-triggered migration on every re-run.
+  local mount_di store_di
+  mount_di="$(sb_dev_inode "$SB_PREFIX_MOUNT")"
+  store_di="$(sb_dev_inode "$SB_PREFIX_STORE")"
+  if [ -n "$mount_di" ] && [ "$mount_di" = "$store_di" ]; then same=1; fi
   # Foreign-prefix probe uses the injectable SB_BREW (not a bare `command -v
   # brew`) so tests can neutralize it (SB_BREW=$SANDBOX/no-such-brew); hosts
   # that already have Homebrew on PATH would otherwise flip fresh -> foreign-prefix.
   if [ "$brew_std" = 0 ] && command -v "$SB_BREW" >/dev/null 2>&1; then elsewhere=1; fi
-  sb_classify_state "$brew_std" "$mount" "$same" "$elsewhere"
+  sb_classify_state "$brew_std" "$same" "$elsewhere"
 }
 
 SB_OWNER="${SB_OWNER:-$(id -un):$(id -gn)}"

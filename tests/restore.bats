@@ -62,6 +62,17 @@ teardown() { rm -rf "$SANDBOX"; }
   grep -q -- "-o bind" "$SANDBOX/mount.log"
 }
 
+@test "restore.sh does not re-mount when the store is already at the prefix (no duplicate mount)" {
+  # Store already bind-mounted at the prefix == prefix and store are the same dir.
+  export SB_PREFIX_STORE="$SANDBOX/store"
+  mkdir -p "$SB_PREFIX_STORE"
+  export SB_PREFIX_MOUNT="$SB_PREFIX_STORE"   # identical dev:inode -> already mounted
+  run bash "$SB_ROOT/restore.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"already mounted"* ]]
+  [ ! -f "$SANDBOX/mount.log" ]               # the mount stub was never invoked
+}
+
 @test "restore.sh is idempotent (second run keeps the shim)" {
   bash "$SB_ROOT/restore.sh"
   run bash "$SB_ROOT/restore.sh"

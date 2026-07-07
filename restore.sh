@@ -7,6 +7,10 @@
 # the SB_* env install.sh passes through sudo (production defaults below).
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/lib/common.sh"
+
 DRY_RUN=false
 [ "${1:-}" = "--dry-run" ] && DRY_RUN=true
 
@@ -24,7 +28,14 @@ run() { if $DRY_RUN; then printf '[dry-run] %s\n' "$*" >&2; else "$@"; fi; }
 
 ensure_mount() {
   run mkdir -p "$SB_PREFIX_MOUNT" "$SB_PREFIX_STORE"
-  if mountpoint -q "$SB_PREFIX_MOUNT" 2>/dev/null; then
+  # Skip if the store is already bind-mounted at the prefix. Detect via dev:inode
+  # equality (a bind mount makes the two paths the same directory), NOT `mountpoint`,
+  # which is unreliable/absent on DSM's busybox userland and can't see bind mounts
+  # there — so a re-run would otherwise stack a duplicate mount every time.
+  local mount_di store_di
+  mount_di="$(sb_dev_inode "$SB_PREFIX_MOUNT")"
+  store_di="$(sb_dev_inode "$SB_PREFIX_STORE")"
+  if [ -n "$mount_di" ] && [ "$mount_di" = "$store_di" ]; then
     log "already mounted: $SB_PREFIX_MOUNT"
   else
     run "$SB_MOUNT" -o bind "$SB_PREFIX_STORE" "$SB_PREFIX_MOUNT"
