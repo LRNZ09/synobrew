@@ -66,6 +66,15 @@ sb_shellenv_line() {
   esac
 }
 
+sb_env_line() {
+  # $1 shell, $2 var name, $3 value. Echoes the exact rc line to persist an
+  # environment variable (fish uses `set -gx`; POSIX shells use `export`).
+  case "${1:-}" in
+    fish) printf 'set -gx %s "%s"\n' "${2:-}" "${3:-}" ;;
+    *)    printf 'export %s="%s"\n' "${2:-}" "${3:-}" ;;
+  esac
+}
+
 sb_bak_name() {
   # $1 path, $2 epoch. Echoes the backup filename.
   echo "${1}.synobrew.bak-${2}"

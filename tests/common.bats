@@ -115,6 +115,16 @@ setup() { load_common; }
   [ "$output" = 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' ]
 }
 
+@test "sb_env_line: fish form uses set -gx" {
+  run sb_env_line fish HOMEBREW_GIT_PATH /usr/local/bin/git
+  [ "$output" = 'set -gx HOMEBREW_GIT_PATH "/usr/local/bin/git"' ]
+}
+
+@test "sb_env_line: posix form uses export" {
+  run sb_env_line bash HOMEBREW_TEMP /home/bob/tmp
+  [ "$output" = 'export HOMEBREW_TEMP="/home/bob/tmp"' ]
+}
+
 @test "sb_bak_name" {
   run sb_bak_name /etc/os-release 1720000000
   [ "$output" = "/etc/os-release.synobrew.bak-1720000000" ]
