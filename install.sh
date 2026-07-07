@@ -360,9 +360,27 @@ persist_shellenv() {
 verify_and_summary() {
   local brew_bin="${SB_PREFIX_MOUNT}/.linuxbrew/bin/brew"
   if ! $DRY_RUN && [ -x "$brew_bin" ]; then
-    "$brew_bin" --version || true
-    "$brew_bin" config || true
-    "$brew_bin" doctor || true
+    "$brew_bin" --version 2>/dev/null | head -n1 || true
+  fi
+  log "Homebrew is installed at ${SB_PREFIX_MOUNT}/.linuxbrew."
+  # Deliberately NOT running `brew doctor` here: at install time the shellenv is
+  # written but not yet sourced, so doctor emits PATH/"bin not found" warnings that
+  # vanish in a fresh shell; and on DSM it always reports the Tier-2 (old glibc) and
+  # rootless-Bubblewrap-sandbox notes. Framing those as expected beats ending on a
+  # wall of alarming-but-benign red.
+  cat >&2 <<EOF
+synobrew: ---------------------------------------------------------------
+synobrew: NEXT: open a new shell (or source your rc) so 'brew' is on PATH.
+synobrew: These are EXPECTED on Synology — not errors:
+synobrew:   - "Tier 2" / "glibc too old": Homebrew installs its own glibc (a bottle). Normal on DSM.
+synobrew:   - "Bubblewrap cannot create a rootless sandbox": DSM kernels can't; we set
+synobrew:     HOMEBREW_NO_SANDBOX_LINUX=1 to quiet it. Ignore brew's sysctl advice (Debian/Ubuntu-only).
+synobrew:   - PATH / "bin not found" warnings: clear once a new shell sources your rc.
+synobrew: For a real health check, run 'brew doctor' yourself in a fresh shell.
+synobrew: ---------------------------------------------------------------
+EOF
+  if [ "$(sb_classify_arch "$SB_UNAME_M")" = warn ]; then
+    log "on $SB_UNAME_M many formulae build from source — run 'brew install gcc' first so builds have a compiler."
   fi
   log "done. Remember: after a DSM *update*, re-run this installer (it is idempotent)."
 }

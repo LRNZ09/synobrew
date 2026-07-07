@@ -355,6 +355,31 @@ SH
   grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/config.fish"
 }
 
+@test "verify_and_summary prints DSM expected-warnings guidance, not a raw brew doctor wall" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EXPECTED on Synology"* ]]
+  [[ "$output" == *"HOMEBREW_NO_SANDBOX_LINUX=1"* ]]
+  [[ "$output" == *"run 'brew doctor' yourself in a fresh shell"* ]]
+}
+
+@test "verify_and_summary suggests 'brew install gcc' on aarch64 (source builds)" {
+  _full_sandbox_env
+  export SB_UNAME_M="aarch64"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"brew install gcc"* ]]
+}
+
+@test "verify_and_summary does NOT nag about gcc on x86_64" {
+  _full_sandbox_env
+  export SB_UNAME_M="x86_64"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"brew install gcc"* ]]
+}
+
 @test "foreign-prefix: warns and never migrates when brew exists at a non-standard prefix" {
   _full_sandbox_env
   # A real brew resolves via SB_BREW, but none at our mount -> foreign-prefix.
