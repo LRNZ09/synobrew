@@ -25,6 +25,11 @@ SB_PGREP="${SB_PGREP:-pgrep}"                  # injectable; guarded (may be abs
 SB_SUDO="${SB_SUDO:-sudo}"
 SB_UNAME_M="${SB_UNAME_M:-$(uname -m)}"
 SB_GIT="${SB_GIT:-git}"
+# Command name of the parent process (the interactive shell that launched us). On
+# DSM $SHELL is the passwd login shell (often /bin/sh) even when the user runs
+# fish, so persist_shellenv also consults this to target the right rc file. Reads
+# /proc first (reliable on DSM's busybox userland), falls back to ps; injectable.
+SB_PARENT_COMM="${SB_PARENT_COMM:-$( { cat "/proc/${PPID:-0}/comm" 2>/dev/null || ps -o comm= -p "${PPID:-0}" 2>/dev/null; } | tr -d '[:space:]' || true)}"
 SB_BREW_INSTALL_URL="${SB_BREW_INSTALL_URL:-https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh}"
 SB_EUID="${SB_EUID:-$(id -u)}"
 # Forward-declared for Tasks 6/7; tests point these at stubs. The ${X:-...}
@@ -297,20 +302,59 @@ _append_once() {
 }
 
 persist_shellenv() {
-  local shell rc line temp_line brew_bin="${SB_PREFIX_MOUNT}/.linuxbrew/bin/brew"
-  shell="$(sb_shell_from_path "${SHELL:-/bin/sh}")"
-  rc="$(sb_rc_file "$shell" "$SB_HOME")"
-  line="$(sb_shellenv_line "$shell" "$brew_bin")"
-  if [ "$shell" = fish ]; then
-    temp_line="set -gx HOMEBREW_TEMP \"$SB_HOME/tmp\""
+  local brew_bin="${SB_PREFIX_MOUNT}/.linuxbrew/bin/brew"
+
+  # Homebrew resets its own PATH to /usr/bin:/bin:/usr/sbin:/sbin — dropping
+  # /usr/local/bin, where DSM/SynoCommunity keeps git — so it cannot see a system
+  # git that install.sh itself found. HOMEBREW_GIT_PATH survives brew's env filter
+  # and is consumed without a PATH lookup, so set it when the system git meets
+  # Homebrew's 2.7.0 floor; otherwise point the user at `brew install git`.
+  local git_path git_ver set_git_path=false
+  git_path="$(command -v "$SB_GIT" 2>/dev/null || true)"
+  if [ -n "$git_path" ]; then
+    git_ver="$("$SB_GIT" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+' | head -n1 || true)"
+    if [ -n "$git_ver" ] && sb_version_ge "$git_ver" "2.7"; then
+      set_git_path=true
+    else
+      warn "system git ($git_path) is older than Homebrew's 2.7.0 minimum; run 'brew install git' after setup."
+    fi
   else
-    temp_line="export HOMEBREW_TEMP=\"$SB_HOME/tmp\""
+    warn "no system git found; run 'brew install git' after setup (Homebrew needs git >= 2.7.0)."
   fi
-  # HOMEBREW_TEMP keeps Homebrew's large temp writes off DSM's ~2.4 GB system partition.
-  run mkdir -p "$(dirname "$rc")" "$SB_HOME/tmp"
-  _append_once "$rc" "$line"
-  _append_once "$rc" "$temp_line"
-  log "shell env persisted in $rc (open a new shell or source it)."
+
+  # Which shells to configure: the login shell ($SHELL) PLUS the interactive shell
+  # (on DSM $SHELL is the passwd shell — often /bin/sh — even when the user runs
+  # fish on top), detected from the parent process and any existing fish config
+  # dir. Writing to each means brew loads whichever shell the user actually opens.
+  local login_shell interactive_shell
+  login_shell="$(sb_shell_from_path "${SHELL:-/bin/sh}")"
+  interactive_shell="$(sb_shell_from_path "${SB_PARENT_COMM#-}")"
+  local -a shells=("$login_shell")
+  if [ "$interactive_shell" != other ] && [ "$interactive_shell" != "$login_shell" ]; then
+    shells+=("$interactive_shell")
+  fi
+  if [ -d "$SB_HOME/.config/fish" ]; then
+    case " ${shells[*]} " in *" fish "*) ;; *) shells+=(fish) ;; esac
+  fi
+
+  run mkdir -p "$SB_HOME/tmp"
+  local sh rc written=""
+  for sh in "${shells[@]}"; do
+    rc="$(sb_rc_file "$sh" "$SB_HOME")"
+    run mkdir -p "$(dirname "$rc")"
+    _append_once "$rc" "$(sb_shellenv_line "$sh" "$brew_bin")"
+    # HOMEBREW_TEMP keeps Homebrew's large temp writes off DSM's ~2.4 GB system partition.
+    _append_once "$rc" "$(sb_env_line "$sh" HOMEBREW_TEMP "$SB_HOME/tmp")"
+    # DSM kernels cannot do rootless sandboxing (unprivileged user namespaces are
+    # disabled), so disable it to silence the per-build warning. See README.
+    _append_once "$rc" "$(sb_env_line "$sh" HOMEBREW_NO_SANDBOX_LINUX 1)"
+    if $set_git_path; then
+      _append_once "$rc" "$(sb_env_line "$sh" HOMEBREW_GIT_PATH "$git_path")"
+    fi
+    written="$written $rc"
+  done
+  log "shell env persisted in:${written} (open a new shell or source it)."
+  log "configured shell(s): ${shells[*]} — if you use a different shell, add the printed lines to its rc."
 }
 
 verify_and_summary() {

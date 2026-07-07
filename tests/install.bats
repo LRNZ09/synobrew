@@ -16,6 +16,9 @@ setup() {
   export SB_PREFIX_STORE="$SANDBOX/store"
   export SB_BREW="$SANDBOX/no-such-brew"
   export SB_KEEPALIVE_INTERVAL=1   # keep the sudo keep-alive's orphaned sleep short so bats doesn't block on it
+  # Pin shell detection so persist_shellenv is deterministic (never reads the host's $SHELL / parent process).
+  export SHELL="/bin/bash"
+  export SB_PARENT_COMM="bash"
 }
 
 teardown() { rm -rf "$SANDBOX"; }
@@ -112,6 +115,12 @@ _full_sandbox_env() {
   export SB_LIBC="/no/libc"
   export SB_BREW="$SANDBOX/no-such-brew"      # nothing "elsewhere" unless a test sets it
   export SHELL="/bin/bash"
+  export SB_PARENT_COMM="bash"
+
+  # git stub: a new-enough system git, so HOMEBREW_GIT_PATH is set deterministically
+  # (no dependence on the host's git). Tests override SB_GIT for old/absent cases.
+  printf '#!/bin/sh\necho "git version 2.40.1"\n' > "$SANDBOX/git-stub"
+  chmod +x "$SANDBOX/git-stub"; export SB_GIT="$SANDBOX/git-stub"
 
   # no-op sudo passthrough: drop -v/-k, strip -n, exec the rest (incl. `env`)
   cat > "$SANDBOX/sudo" <<'SH'
@@ -287,6 +296,63 @@ SH
   [ "$status" -eq 1 ]
   [[ "$output" == *"whole homes share"* ]]
   [ ! -e "$SB_PREFIX_STORE/.linuxbrew" ]   # refused before any copy
+}
+
+@test "persist_shellenv sets HOMEBREW_GIT_PATH when the system git is new enough" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  grep -q "HOMEBREW_GIT_PATH=\"$SANDBOX/git-stub\"" "$SB_HOME/.profile"
+}
+
+@test "persist_shellenv warns and omits HOMEBREW_GIT_PATH when git is too old" {
+  _full_sandbox_env
+  printf '#!/bin/sh\necho "git version 2.6.0"\n' > "$SANDBOX/git-old"; chmod +x "$SANDBOX/git-old"
+  export SB_GIT="$SANDBOX/git-old"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"older than Homebrew's 2.7.0"* ]]
+  ! grep -q HOMEBREW_GIT_PATH "$SB_HOME/.profile"
+}
+
+@test "persist_shellenv warns and omits HOMEBREW_GIT_PATH when no system git is present" {
+  _full_sandbox_env
+  export SB_GIT="$SANDBOX/no-such-git"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no system git found"* ]]
+  ! grep -q HOMEBREW_GIT_PATH "$SB_HOME/.profile"
+}
+
+@test "persist_shellenv sets HOMEBREW_NO_SANDBOX_LINUX (DSM cannot rootless-sandbox)" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  grep -q 'HOMEBREW_NO_SANDBOX_LINUX' "$SB_HOME/.profile"
+}
+
+@test "persist_shellenv also configures fish when it is the interactive shell (not \$SHELL)" {
+  _full_sandbox_env
+  export SHELL="/bin/sh"        # DSM login shell...
+  export SB_PARENT_COMM="fish"  # ...but the user runs fish on top
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  # POSIX rc still written for the login shell (covers exec-fish-from-.profile):
+  grep -q 'brew shellenv' "$SB_HOME/.profile"
+  # AND the fish rc is written with fish-form lines:
+  grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/config.fish"
+  grep -q 'set -gx HOMEBREW_NO_SANDBOX_LINUX' "$SB_HOME/.config/fish/config.fish"
+  grep -q "set -gx HOMEBREW_GIT_PATH \"$SANDBOX/git-stub\"" "$SB_HOME/.config/fish/config.fish"
+}
+
+@test "persist_shellenv detects fish from an existing ~/.config/fish dir" {
+  _full_sandbox_env
+  export SHELL="/bin/sh"
+  export SB_PARENT_COMM="sh"        # parent is not fish...
+  mkdir -p "$SB_HOME/.config/fish"  # ...but a fish config dir already exists
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/config.fish"
 }
 
 @test "foreign-prefix: warns and never migrates when brew exists at a non-standard prefix" {
