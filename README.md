@@ -99,6 +99,12 @@ shellcheck install.sh restore.sh lib/common.sh
 bats tests/
 ```
 
+## Secret scanning
+
+- Pre-commit hook (`.githooks/pre-commit`) runs `gitleaks` on staged changes.
+  Enable per clone: `git config core.hooksPath .githooks` (needs `gitleaks`).
+- CI (`.github/workflows/gitleaks.yml`) scans every push and PR.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
