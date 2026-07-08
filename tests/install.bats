@@ -354,6 +354,16 @@ SH
   ! grep -q HOMEBREW_GIT_PATH "$SB_HOME/.profile"
 }
 
+@test "persist_shellenv makes HOMEBREW_TEMP sticky + not world-writable (brew doctor clean)" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [ -d "$SB_HOME/tmp" ]
+  local perms; perms="$(stat -c '%A' "$SB_HOME/tmp" 2>/dev/null || stat -f '%Sp' "$SB_HOME/tmp")"
+  [[ "$perms" == *t ]]              # sticky bit set (e.g. drwxr-xr-t)
+  [ "${perms:8:1}" != "w" ]        # other-write bit off (not world-writable)
+}
+
 @test "persist_shellenv sets HOMEBREW_NO_SANDBOX_LINUX (DSM cannot rootless-sandbox)" {
   _full_sandbox_env
   run bash "$SB_ROOT/install.sh" --yes

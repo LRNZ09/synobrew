@@ -345,6 +345,11 @@ persist_shellenv() {
   fi
 
   run mkdir -p "$SB_HOME/tmp"
+  # HOMEBREW_TEMP must not be world-writable without the sticky bit (brew doctor
+  # flags it, and it's a real security nit on a shared FS). mkdir's mode follows
+  # the ambient umask — world-writable on DSM — so set it explicitly. 1755 = sticky
+  # + owner-only writable, matching Homebrew's own `install -d -m 1755` advice.
+  run chmod 1755 "$SB_HOME/tmp"
   local sh rc written=""
   for sh in "${shells[@]}"; do
     rc="$(sb_rc_file "$sh" "$SB_HOME")"
