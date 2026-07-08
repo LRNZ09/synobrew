@@ -20,7 +20,7 @@ SB_DSM_VERSION_FILE="${SB_DSM_VERSION_FILE:-/etc.defaults/VERSION}"
 SB_LIBC="${SB_LIBC:-/usr/lib/libc.so.6}"
 SB_HOMES_DIR="${SB_HOMES_DIR:-/var/services/homes}"
 SB_MOUNT="${SB_MOUNT:-mount}"
-SB_MOUNTPOINT="${SB_MOUNTPOINT:-mountpoint}"   # injectable; detects a whole-homes /home mount during migrate
+SB_PROC_MOUNTS="${SB_PROC_MOUNTS:-/proc/mounts}"   # injectable; migrate reads it to detect a foreign mount at the prefix (DSM has no `mountpoint`)
 SB_PGREP="${SB_PGREP:-pgrep}"                  # injectable; guarded (may be absent on DSM's base userland)
 SB_SUDO="${SB_SUDO:-sudo}"
 SB_UNAME_M="${SB_UNAME_M:-$(uname -m)}"
@@ -205,12 +205,16 @@ migrate_prefix() {
   else
     warn "cannot check for a running brew ($SB_PGREP unavailable); ensure no 'brew' process is active before continuing."
   fi
-  # If the whole homes share is bind-mounted onto the PARENT (e.g. /home) — a
-  # cdalvaro/MrCee-style setup — auto-unmounting it is too drastic (it drops
-  # every user's home). Refuse with instructions rather than migrate into a live
-  # share or leave the exposure in place. Checked BEFORE copying anything.
-  if ! "$SB_MOUNTPOINT" -q "$mnt" 2>/dev/null && "$SB_MOUNTPOINT" -q "$(dirname "$mnt")" 2>/dev/null; then
-    die "the whole homes share appears mounted at $(dirname "$mnt"); synobrew will not unmount it for you. Unmount it manually (your data stays at /volume1/homes) and re-run, or remove that mount."
+  # In the foreign-backing state the prefix is NOT our store, so any filesystem
+  # currently mounted at the prefix is foreign — an old whole-homes bind, a prior
+  # synobrew mount at a different store, etc. Auto-unmounting an unknown mount is
+  # unsafe (it could drop a live share), so refuse with instructions instead of
+  # guessing. Detected via /proc/mounts because DSM's busybox ships no `mountpoint`
+  # (and dev:inode can't tell "is a mount" for a bind on the same fs). Checked
+  # BEFORE copying anything. NOTE: a mounted PARENT (e.g. /home) is normal on DSM
+  # and is deliberately NOT treated as an error — only a mount at the prefix is.
+  if sb_is_mounted "$mnt" "$SB_PROC_MOUNTS"; then
+    die "a foreign filesystem is mounted at ${mnt}; synobrew will not unmount an unknown mount for you. Unmount it manually (sudo umount ${mnt}; your data stays at its source) and re-run."
   fi
   [ ! -e "${store}/.linuxbrew" ] || die "target store ${store}/.linuxbrew already exists; move it aside and retry (never clobbered)."
   log "migrating existing prefix into ${store} (a DSM snapshot first is recommended)."
@@ -221,9 +225,9 @@ migrate_prefix() {
   if ! $DRY_RUN; then
     [ -x "${store}/.linuxbrew/bin/brew" ] || die "migration copy failed: no brew at ${store}/.linuxbrew/bin/brew"
   fi
-  if "$SB_MOUNTPOINT" -q "$mnt" 2>/dev/null; then
-    run "$SB_SUDO" umount "$mnt" || run "$SB_SUDO" umount -l "$mnt"
-  elif [ -d "${mnt}/.linuxbrew" ]; then
+  # The prefix is a plain directory (we refused above if it were a mount), so move
+  # the old prefix aside; it stays HIDDEN beneath the bind mount restore.sh adds.
+  if [ -d "${mnt}/.linuxbrew" ]; then
     run mv "${mnt}/.linuxbrew" "${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH}"
     log "old prefix moved to ${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH}; it will be HIDDEN beneath the new bind mount. To remove it later: sudo umount ${mnt} && sudo rm -rf ${mnt}/.linuxbrew.synobrew-old-${SB_EPOCH} (then reboot or re-run restore.sh)."
   fi

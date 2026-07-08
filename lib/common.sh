@@ -98,3 +98,12 @@ sb_dev_inode() {
   [ -e "${1:-}" ] || return 0
   stat -c '%d:%i' "$1" 2>/dev/null || stat -f '%d:%i' "$1" 2>/dev/null || true
 }
+
+sb_is_mounted() {
+  # $1 path, $2 mounts file (default /proc/mounts). Returns 0 iff $1 is a mount
+  # point (field 2) in that file. Uses /proc/mounts because DSM's busybox has no
+  # `mountpoint`; bind mounts appear here too. Unreadable file -> "not mounted".
+  local path="${1:-}" mounts="${2:-/proc/mounts}"
+  [ -n "$path" ] && [ -r "$mounts" ] || return 1
+  awk -v p="$path" '$2 == p { f = 1 } END { exit f ? 0 : 1 }' "$mounts"
+}

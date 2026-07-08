@@ -160,3 +160,20 @@ setup() { load_common; }
   run sb_dev_inode /no/such/path/xyz
   [ "$output" = "" ]
 }
+
+@test "sb_is_mounted: true when path is a mount point in the mounts file" {
+  printf 'dev / ext4 rw 0 0\nsrc /home/linuxbrew ext4 rw 0 0\n' > "$BATS_TEST_TMPDIR/mounts"
+  run sb_is_mounted /home/linuxbrew "$BATS_TEST_TMPDIR/mounts"
+  [ "$status" -eq 0 ]
+}
+
+@test "sb_is_mounted: false when path is not a mount point" {
+  printf 'dev / ext4 rw 0 0\n' > "$BATS_TEST_TMPDIR/mounts"
+  run sb_is_mounted /home/linuxbrew "$BATS_TEST_TMPDIR/mounts"
+  [ "$status" -ne 0 ]
+}
+
+@test "sb_is_mounted: false (safe) when the mounts file is unreadable" {
+  run sb_is_mounted /home/linuxbrew /no/such/mounts-file
+  [ "$status" -ne 0 ]
+}

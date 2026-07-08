@@ -202,6 +202,10 @@ SH
   # process table, which would make the migrate tests host-dependent).
   printf '#!/bin/sh\nexit 1\n' > "$SANDBOX/pgrep-none"; chmod +x "$SANDBOX/pgrep-none"
   export SB_PGREP="$SANDBOX/pgrep-none"
+
+  # Empty /proc/mounts by default: nothing is mounted, so migrate never refuses.
+  # The "foreign mount at the prefix" test overrides this with a populated file.
+  : > "$SANDBOX/proc-mounts"; export SB_PROC_MOUNTS="$SANDBOX/proc-mounts"
 }
 
 @test "fresh install (dry-run) reports all planned actions" {
@@ -294,24 +298,34 @@ SH
   [[ "$output" == *"already exists"* ]]
 }
 
-@test "migrate refuses (before copying) when the whole homes share is mounted at the parent" {
+@test "migrate refuses (before copying) when a foreign filesystem is mounted at the prefix" {
   _full_sandbox_env
-  # brew at the sandbox mount -> foreign-backing; stub mountpoint so only the
-  # PARENT (dirname of the mount, the whole-homes /home case) reports mounted.
+  # brew at the sandbox prefix -> foreign-backing; a /proc/mounts that lists the
+  # prefix itself as an active (foreign) mount must make synobrew refuse rather
+  # than auto-unmount an unknown mount.
   mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin"
   printf '#!/bin/sh\necho brew\n' > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
   chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
-  cat > "$SANDBOX/mountpoint-stub" <<SH
-#!/bin/sh
-# args: -q PATH ; report only the parent (whole-homes) dir as a mountpoint
-[ "\$2" = "$(dirname "$SB_PREFIX_MOUNT")" ] && exit 0
-exit 1
-SH
-  chmod +x "$SANDBOX/mountpoint-stub"; export SB_MOUNTPOINT="$SANDBOX/mountpoint-stub"
+  printf 'somedev %s ext4 rw 0 0\n' "$SB_PREFIX_MOUNT" > "$SANDBOX/proc-mounts"
   run bash "$SB_ROOT/install.sh" --yes
   [ "$status" -eq 1 ]
-  [[ "$output" == *"whole homes share"* ]]
+  [[ "$output" == *"foreign filesystem is mounted at"* ]]
   [ ! -e "$SB_PREFIX_STORE/.linuxbrew" ]   # refused before any copy
+}
+
+@test "migrate proceeds when the PARENT is mounted but the prefix itself is not (normal DSM)" {
+  _full_sandbox_env
+  # Regression for the DSM reality: /home is itself a mount. A mounted parent must
+  # NOT be treated as the old 'whole homes share' error — only a mount at the
+  # prefix is. Here only dirname(prefix) is listed in /proc/mounts.
+  mkdir -p "$SB_PREFIX_MOUNT/.linuxbrew/bin"
+  printf '#!/bin/sh\necho brew\n' > "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  chmod +x "$SB_PREFIX_MOUNT/.linuxbrew/bin/brew"
+  printf 'vol %s ext4 rw 0 0\n' "$(dirname "$SB_PREFIX_MOUNT")" > "$SANDBOX/proc-mounts"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"state: foreign-backing"* ]]
+  [ -x "$SB_PREFIX_STORE/.linuxbrew/bin/brew" ]   # migration proceeded, not refused
 }
 
 @test "persist_shellenv sets HOMEBREW_GIT_PATH when the system git is new enough" {
