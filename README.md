@@ -29,7 +29,7 @@ repair or migrate an existing install in place.
 - Writes a `/usr/bin/ldd` shim (Homebrew probes glibc via `ldd`; DSM has none).
 - Writes `/etc/os-release` (cosmetic — silences a per-command warning).
 - Registers a **DSM boot task** that runs a one-line `mount` command held in DSM's own root-only config (nothing is installed under your home for the root boot task to run).
-- Persists shell env — it detects your **interactive** shell (including fish, which `$SHELL` misreports on DSM) and writes: the `brew shellenv` line, `HOMEBREW_TEMP` (keeps big temp writes off DSM's small system partition, created mode `1755`), `HOMEBREW_NO_SANDBOX_LINUX=1` (DSM kernels can't rootless-sandbox — see below), and `HOMEBREW_GIT_PATH` when a suitable system git is found. POSIX shells get these appended to `~/.profile` (or `~/.zshrc`); **fish** gets a self-contained drop-in at `~/.config/fish/conf.d/synobrew.fish`, which fish auto-sources _before_ your `config.fish` (so brew is ready before your interactive commands) and never touches `config.fish`.
+- Persists shell env — it detects your **interactive** shell (including fish, which `$SHELL` misreports on DSM) and writes: the `brew shellenv` line, `HOMEBREW_TEMP` (keeps big temp writes off DSM's small system partition, created mode `1755`), `HOMEBREW_NO_SANDBOX_LINUX=1` (DSM kernels can't rootless-sandbox — see below), and `HOMEBREW_GIT_PATH` when a suitable system git is found. POSIX shells get these as a single `# synobrew start`…`# synobrew end` block in `~/.profile` (or `~/.zshrc`) — trivial to remove by hand; **fish** gets a self-contained drop-in at `~/.config/fish/conf.d/synobrew.fish`, which fish auto-sources _before_ your `config.fish` (so brew is ready before your interactive commands) and never touches `config.fish`.
 - Existing system files are backed up as `<path>.synobrew.bak-<epoch>` before any overwrite.
 - On a **fresh** install (only when Homebrew isn't already present), it downloads and runs Homebrew's official installer via `curl | bash` from `raw.githubusercontent.com/Homebrew/install/HEAD` — this is inherent to Homebrew, not synobrew-specific. That revision is unpinned (`HEAD`); set `SB_BREW_INSTALL_URL` to a specific commit/tag to pin or audit it, and use `--dry-run` to see the action without running it.
 
@@ -98,9 +98,8 @@ sudo umount /home/linuxbrew && sudo rmdir /home/linuxbrew 2>/dev/null || true
 # 4. Delete the Boot-up task in Task Scheduler, then remove the prefix store:
 rm -rf ~/.tools/synobrew
 # 5. Remove synobrew's shell env. For fish: rm ~/.config/fish/conf.d/synobrew.fish
-#    For POSIX shells: delete synobrew's lines (each preceded by a `# synobrew`
-#    comment: shellenv, HOMEBREW_TEMP, HOMEBREW_NO_SANDBOX_LINUX, HOMEBREW_GIT_PATH)
-#    from ~/.profile or ~/.zshrc.
+#    For POSIX shells: delete the block between `# synobrew start` and
+#    `# synobrew end` (inclusive) in ~/.profile or ~/.zshrc.
 ```
 
 ## Safety

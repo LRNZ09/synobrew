@@ -296,16 +296,36 @@ sudo_keepalive() {
   trap 'kill "$SB_KEEPALIVE_PID" 2>/dev/null || true' EXIT
 }
 
-_append_once() {
-  # $1 rc file, $2 exact line. Appends once (idempotent, guarded by grep -qxF).
-  local rc="$1" line="$2"
-  if [ -f "$rc" ] && grep -qxF "$line" "$rc"; then
-    log "already present in $rc: $line"
-    return
+_write_block() {
+  # $1 rc file; remaining args = lines to place inside ONE managed block delimited
+  # by `# synobrew start` / `# synobrew end`. Idempotent and self-healing: strips
+  # any existing managed block (and any legacy per-line `# synobrew` entries from
+  # older versions) before appending a fresh block, so re-runs converge to a single
+  # block that the user can remove by deleting everything between the two markers.
+  local rc="$1"; shift
+  if $DRY_RUN; then log "[dry-run] write # synobrew block ($# line(s)) to $rc"; return; fi
+  mkdir -p "$(dirname "$rc")"
+  local want="${rc}.synobrew.want.$$" tmp="${rc}.synobrew.tmp.$$"
+  printf '%s\n' "$@" > "$want"
+  if [ -f "$rc" ]; then
+    # Keep the user's lines; drop our managed block, the legacy bare marker, and any
+    # stray line identical to one we're about to (re)write (old per-line format).
+    awk '
+      NR==FNR              { want[$0] = 1; next }
+      /^# synobrew start$/ { insb = 1; next }
+      /^# synobrew end$/   { insb = 0; next }
+      insb                 { next }
+      /^# synobrew$/       { next }
+      ($0 in want)         { next }
+      { print }
+    ' "$want" "$rc" > "$tmp"
+  else
+    : > "$tmp"
   fi
-  if $DRY_RUN; then log "[dry-run] append to $rc: $line"; return; fi
-  printf '\n# synobrew\n%s\n' "$line" >> "$rc"
-  log "added to $rc: $line"
+  { printf '# synobrew start\n'; cat "$want"; printf '# synobrew end\n'; } >> "$tmp"
+  mv -- "$tmp" "$rc"
+  rm -f "$want"
+  log "wrote # synobrew block to $rc"
 }
 
 persist_shellenv() {
@@ -353,16 +373,16 @@ persist_shellenv() {
   local sh rc written=""
   for sh in "${shells[@]}"; do
     rc="$(sb_rc_file "$sh" "$SB_HOME")"
-    run mkdir -p "$(dirname "$rc")"
-    _append_once "$rc" "$(sb_shellenv_line "$sh" "$brew_bin")"
-    # HOMEBREW_TEMP keeps Homebrew's large temp writes off DSM's ~2.4 GB system partition.
-    _append_once "$rc" "$(sb_env_line "$sh" HOMEBREW_TEMP "$SB_HOME/tmp")"
-    # DSM kernels cannot do rootless sandboxing (unprivileged user namespaces are
-    # disabled), so disable it to silence the per-build warning. See README.
-    _append_once "$rc" "$(sb_env_line "$sh" HOMEBREW_NO_SANDBOX_LINUX 1)"
+    # Build the managed block. HOMEBREW_TEMP keeps Homebrew's large temp writes off
+    # DSM's ~2.4 GB system partition; HOMEBREW_NO_SANDBOX_LINUX=1 silences the
+    # rootless-sandbox warning DSM kernels can't satisfy (see README).
+    local -a block=("$(sb_shellenv_line "$sh" "$brew_bin")")
+    block+=("$(sb_env_line "$sh" HOMEBREW_TEMP "$SB_HOME/tmp")")
+    block+=("$(sb_env_line "$sh" HOMEBREW_NO_SANDBOX_LINUX 1)")
     if $set_git_path; then
-      _append_once "$rc" "$(sb_env_line "$sh" HOMEBREW_GIT_PATH "$git_path")"
+      block+=("$(sb_env_line "$sh" HOMEBREW_GIT_PATH "$git_path")")
     fi
+    _write_block "$rc" "${block[@]}"
     written="$written $rc"
   done
   log "shell env persisted in:${written} (open a new shell or source it)."

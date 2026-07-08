@@ -371,6 +371,27 @@ SH
   grep -q 'HOMEBREW_NO_SANDBOX_LINUX' "$SB_HOME/.profile"
 }
 
+@test "persist_shellenv wraps its lines in ONE removable # synobrew start/end block" {
+  _full_sandbox_env
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^# synobrew start$' "$SB_HOME/.profile")" -eq 1 ]
+  [ "$(grep -c '^# synobrew end$' "$SB_HOME/.profile")" -eq 1 ]
+  [ "$(grep -c '^# synobrew' "$SB_HOME/.profile")" -eq 2 ]   # only start + end, no per-line markers
+}
+
+@test "persist_shellenv preserves user rc content and collapses a legacy per-line entry into the block" {
+  _full_sandbox_env
+  # user content + an OLD-format synobrew entry (bare '# synobrew' + a managed line)
+  printf 'export USER_THING=1\n# synobrew\nexport HOMEBREW_NO_SANDBOX_LINUX="1"\n' > "$SB_HOME/.profile"
+  run bash "$SB_ROOT/install.sh" --yes
+  [ "$status" -eq 0 ]
+  grep -q '^export USER_THING=1$' "$SB_HOME/.profile"                     # user content kept
+  [ "$(grep -c '^# synobrew start$' "$SB_HOME/.profile")" -eq 1 ]         # exactly one block
+  [ "$(grep -c '^# synobrew$' "$SB_HOME/.profile")" -eq 0 ]               # legacy bare marker gone
+  [ "$(grep -c 'HOMEBREW_NO_SANDBOX_LINUX' "$SB_HOME/.profile")" -eq 1 ]  # not duplicated
+}
+
 @test "persist_shellenv also configures fish when it is the interactive shell (not \$SHELL)" {
   _full_sandbox_env
   export SHELL="/bin/sh"        # DSM login shell...
