@@ -1,12 +1,20 @@
 #!/usr/bin/env bash
 # Pre-commit secret scan with gitleaks.
 # Enable once per clone:  git config core.hooksPath .githooks
-# Requires gitleaks (brew install gitleaks); skips with a warning if absent so a
-# missing install never blocks committing.
+# Requires gitleaks (brew install gitleaks). Skips with a warning if gitleaks is
+# absent OR present-but-not-runnable (e.g. a proto/asdf shim with no pinned
+# version) so a tooling problem never blocks committing — CI (gitleaks.yml) is the
+# authoritative gate. Only a genuine leak (a clean gitleaks reporting findings)
+# blocks the commit.
 set -euo pipefail
 
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "warning: gitleaks not installed, skipping secret scan (brew install gitleaks)" >&2
+  exit 0
+fi
+
+if ! gitleaks version >/dev/null 2>&1; then
+  echo "warning: gitleaks is installed but not runnable (e.g. proto/asdf has no pinned version); skipping secret scan — CI still scans" >&2
   exit 0
 fi
 
