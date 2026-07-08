@@ -380,9 +380,9 @@ SH
   # POSIX rc still written for the login shell (covers exec-fish-from-.profile):
   grep -q 'brew shellenv' "$SB_HOME/.profile"
   # AND the fish rc is written with fish-form lines:
-  grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/config.fish"
-  grep -q 'set -gx HOMEBREW_NO_SANDBOX_LINUX' "$SB_HOME/.config/fish/config.fish"
-  grep -q "set -gx HOMEBREW_GIT_PATH \"$SANDBOX/git-stub\"" "$SB_HOME/.config/fish/config.fish"
+  grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/conf.d/synobrew.fish"
+  grep -q 'set -gx HOMEBREW_NO_SANDBOX_LINUX' "$SB_HOME/.config/fish/conf.d/synobrew.fish"
+  grep -q "set -gx HOMEBREW_GIT_PATH \"$SANDBOX/git-stub\"" "$SB_HOME/.config/fish/conf.d/synobrew.fish"
 }
 
 @test "persist_shellenv detects fish from an existing ~/.config/fish dir" {
@@ -392,7 +392,7 @@ SH
   mkdir -p "$SB_HOME/.config/fish"  # ...but a fish config dir already exists
   run bash "$SB_ROOT/install.sh" --yes
   [ "$status" -eq 0 ]
-  grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/config.fish"
+  grep -q 'shellenv fish | source' "$SB_HOME/.config/fish/conf.d/synobrew.fish"
 }
 
 @test "verify_and_summary prints DSM expected-warnings guidance, not a raw brew doctor wall" {

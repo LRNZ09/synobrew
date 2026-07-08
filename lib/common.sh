@@ -50,9 +50,13 @@ sb_shell_from_path() {
 }
 
 sb_rc_file() {
-  # $1 shell, $2 home. Echoes the rc file to edit.
+  # $1 shell, $2 home. Echoes the rc file to edit. For fish we use a conf.d
+  # drop-in: fish auto-sources ~/.config/fish/conf.d/*.fish BEFORE config.fish, so
+  # brew is on PATH before any interactive commands there (e.g. a brew-installed
+  # fastfetch), and the user's own config.fish is never touched. It also makes
+  # uninstall a single-file delete.
   case "${1:-}" in
-    fish) echo "${2}/.config/fish/config.fish" ;;
+    fish) echo "${2}/.config/fish/conf.d/synobrew.fish" ;;
     zsh) echo "${2}/.zshrc" ;;
     *) echo "${2}/.profile" ;;  # bash, sh, other -> login rcfile on DSM
   esac

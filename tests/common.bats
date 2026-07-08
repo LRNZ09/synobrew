@@ -90,9 +90,9 @@ setup() { load_common; }
   [ "$output" = "other" ]
 }
 
-@test "sb_rc_file: fish -> config.fish" {
+@test "sb_rc_file: fish -> conf.d drop-in (sourced before config.fish)" {
   run sb_rc_file fish /home/bob
-  [ "$output" = "/home/bob/.config/fish/config.fish" ]
+  [ "$output" = "/home/bob/.config/fish/conf.d/synobrew.fish" ]
 }
 
 @test "sb_rc_file: zsh -> .zshrc" {
