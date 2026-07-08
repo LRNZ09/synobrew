@@ -70,7 +70,7 @@ but are **normal on DSM** — none of them means the install failed:
 - **"Tier 2" / "your system glibc … is too old"** — DSM ships an old glibc, so Homebrew installs its _own_ glibc (a bottle download). Inherent to the platform, not synobrew. (arm64 Linux is Tier 2, or Tier 1 since Homebrew 5.0.)
 - **"Bubblewrap cannot create a rootless sandbox"** — DSM kernels disable unprivileged user namespaces (the same reason rootless Docker fails), and the `sysctl` lines `brew` suggests are Debian/Ubuntu-only and don't survive a DSM reboot. synobrew sets `HOMEBREW_NO_SANDBOX_LINUX=1` to silence it; that only disables isolation of formula _build/test_ steps, not installed software. Delete that line from your rc if you disagree.
 - **"Git could not be found" / PATH / "bin not found" / "tools at both paths"** — install-time artifacts. `brew` resets its own `PATH` and can't see `/usr/local/bin`; synobrew fixes git via `HOMEBREW_GIT_PATH`, and the PATH notes clear as soon as you open a new shell that sources your rc.
-- **"No developer tools installed"** — only matters for source builds. On aarch64 run `brew install gcc` first (it's a bottle download, not a source build).
+- **"No developer tools installed"** — advisory, and it **persists even after `brew install gcc`**: the check looks for a _system_ compiler in `/usr/bin`, which DSM doesn't ship. Bottle installs need no compiler at all; for the source builds common on aarch64, `brew install gcc` (itself a bottle) gives Homebrew its own compiler. So install gcc to _build_, but don't expect this warning to disappear.
 
 For the real check, run `brew doctor` yourself **in a fresh shell**.
 
